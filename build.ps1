@@ -52,9 +52,22 @@ if (-not $SkipInstaller) {
     ) | Where-Object { $_ -and (Test-Path $_) }
     if ($candidates) {
         Write-Host "== Building installer ($version)" -ForegroundColor Cyan
-        & ($candidates | Select-Object -First 1) "/DAppVersion=$version" "/DSourceDir=$out" (Join-Path $root 'installer\ReminderBubble.iss')
+        $iscc = $candidates | Select-Object -First 1
+        $iss  = Join-Path $root 'installer\ReminderBubble.iss'
+
+        # 1) offline installer: bundles the .NET runtime (about 60 MB)
+        & $iscc "/DAppVersion=$version" "/DOffline" "/DSourceDir=$out" $iss
+        if ($LASTEXITCODE -ne 0) { throw 'Offline installer build failed.' }
+
+        # 2) small installer (a few MB): downloads the .NET 8 Desktop Runtime during setup only if it is missing
+        $lite = Join-Path $root "publish\$Runtime-lite"
+        if (Test-Path $lite) { Remove-Item $lite -Recurse -Force }
+        dotnet publish (Join-Path $root 'src\ReminderBubble\ReminderBubble.csproj') -c Release -r $Runtime --self-contained false `
+            -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:DebugType=none -o $lite --nologo
+        if ($LASTEXITCODE -ne 0) { throw 'Small publish failed.' }
+        & $iscc "/DAppVersion=$version" "/DSourceDir=$lite" $iss
         if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
-        Write-Host "== Installer: $(Join-Path $dist "ReminderBubble-Setup-$version.exe")" -ForegroundColor Green
+        Write-Host "== Installers: $dist\ReminderBubble-Setup-$version.exe (small), ...-offline.exe (bundled runtime)" -ForegroundColor Green
     } else {
         Write-Warning 'Inno Setup 6 was not found - skipping the installer. Install it with: winget install JRSoftware.InnoSetup'
     }

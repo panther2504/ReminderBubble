@@ -45,7 +45,11 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
 
 OutputDir=..\dist
+#ifdef Offline
+OutputBaseFilename=ReminderBubble-Setup-{#AppVersion}-offline
+#else
 OutputBaseFilename=ReminderBubble-Setup-{#AppVersion}
+#endif
 SetupIconFile=..\src\ReminderBubble\Assets\app.ico
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
@@ -84,10 +88,30 @@ Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait pos
 const
   WebView2Guid = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
   WebView2Url  = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703';
+  DotNetUrl    = 'https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe';
 
 var
   DownloadPage: TDownloadWizardPage;
   WebView2Downloaded: Boolean;
+  DotNetDownloaded: Boolean;
+
+{ ---- .NET 8 Desktop Runtime (only needed by the small installer; the offline one bundles it) ---- }
+
+function DotNetDesktopInstalled: Boolean;
+var
+  Find: TFindRec;
+begin
+#ifdef Offline
+  Result := True;
+#else
+  Result := False;
+  if FindFirst(ExpandConstant('{commonpf64}\dotnet\shared\Microsoft.WindowsDesktop.App\8.*'), Find) then
+  begin
+    Result := True;
+    FindClose(Find);
+  end;
+#endif
+end;
 
 { Per-user installs go to %LOCALAPPDATA%\Programs (no admin needed); "all users" installs go to Program Files. }
 function DefaultInstallDir(Param: String): String;
@@ -128,20 +152,24 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if (CurPageID = wpReady) and not WebView2Installed then
+  if (CurPageID = wpReady) and (not WebView2Installed or not DotNetDesktopInstalled) then
   begin
     DownloadPage.Clear;
-    DownloadPage.Add(WebView2Url, 'MicrosoftEdgeWebview2Setup.exe', '');
+    if not DotNetDesktopInstalled then DownloadPage.Add(DotNetUrl, 'windowsdesktop-runtime-win-x64.exe', '');
+    if not WebView2Installed then DownloadPage.Add(WebView2Url, 'MicrosoftEdgeWebview2Setup.exe', '');
     DownloadPage.Show;
     try
       try
         DownloadPage.Download;
-        WebView2Downloaded := True;
+        DotNetDownloaded := not DotNetDesktopInstalled;
+        WebView2Downloaded := not WebView2Installed;
       except
-        { Not fatal: the app itself offers the download on first launch. }
+        { Not fatal for the install itself; tell the user what is missing and how to get it. }
         if not DownloadPage.AbortedByUser then
-          SuppressibleMsgBox('The Microsoft Edge WebView2 Runtime could not be downloaded:' + #13#10 + GetExceptionMessage + #13#10#13#10 +
-            '{#AppName} needs it and will offer to download it the first time it starts.', mbInformation, MB_OK, IDOK);
+          SuppressibleMsgBox('A required component could not be downloaded:' + #13#10 + GetExceptionMessage + #13#10#13#10 +
+            '{#AppName} needs the .NET 8 Desktop Runtime and the Microsoft Edge WebView2 Runtime. Please install them from ' +
+            'https://dotnet.microsoft.com/download/dotnet/8.0 and https://developer.microsoft.com/microsoft-edge/webview2/ , or run the offline installer.',
+            mbInformation, MB_OK, IDOK);
       end;
     finally
       DownloadPage.Hide;
@@ -168,6 +196,12 @@ procedure CurStepChanged(CurStep: TSetupStep);
 var
   Code: Integer;
 begin
+  if (CurStep = ssPostInstall) and DotNetDownloaded and FileExists(ExpandConstant('{tmp}\windowsdesktop-runtime-win-x64.exe')) then
+  begin
+    WizardForm.StatusLabel.Caption := 'Installing the .NET 8 Desktop Runtime (Windows may ask for permission)...';
+    { The runtime installer needs administrator rights, so start it "as admin" (UAC prompt). }
+    ShellExec('runas', ExpandConstant('{tmp}\windowsdesktop-runtime-win-x64.exe'), '/install /quiet /norestart', '', SW_SHOW, ewWaitUntilTerminated, Code);
+  end;
   if (CurStep = ssPostInstall) and WebView2Downloaded then
   begin
     WizardForm.StatusLabel.Caption := 'Installing the Microsoft Edge WebView2 Runtime...';

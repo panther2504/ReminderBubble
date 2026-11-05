@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
@@ -44,7 +45,13 @@ public sealed class App : Application
             Db = new Database(Path.Combine(dataDir, "reminders.db"));
             Settings = new SettingsService(Db);
             Reminders = new ReminderService(Db);
-            StartupService.Apply(Settings.Current.StartWithWindows);
+            // The Run key is the source of truth for "start with Windows": the installer may have set it (or the user
+            // removed it), so mirror it into the setting instead of overwriting it.
+            var autostart = StartupService.IsEnabled();
+            if (autostart != Settings.Current.StartWithWindows)
+                Settings.Patch(JsonDocument.Parse(autostart ? "{\"startWithWindows\":true}" : "{\"startWithWindows\":false}").RootElement);
+            else if (autostart)
+                StartupService.Apply(true);      // keep the path current after an update or a move
 
             // The bubble appears immediately; the HTML windows warm up behind it.
             Bubble = new BubbleWindow(Settings.Current);

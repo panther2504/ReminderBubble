@@ -27,13 +27,25 @@ reminder is due, and opens a polished panel when you click it.
 
 Everything is stored locally in `%LOCALAPPDATA%\ReminderBubble\reminders.db`. Nothing leaves your PC.
 
-## Run it
+## Install
 
-**Requirements:** Windows 10 / 11 (x64) and the [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
-(already installed on Windows 11 and on current Windows 10; the app offers the download if it is missing).
+**Requirements:** Windows 10 / 11 (x64). The app's UI runs on the
+[WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) – already part of Windows 11 and current
+Windows 10, and the installer downloads it for you if it is missing.
 
-Grab the zip from the [Actions](../../actions) build artifact (or build it yourself below), unzip, and start
-`ReminderBubble.exe`. **Keep the `wwwroot` folder next to the exe.**
+1. Run **`releases/ReminderBubble-Setup-1.0.0.exe`** (also attached to every [release](../../releases) and to each
+   [Actions](../../actions) build).
+2. Next → Next → Install. No administrator rights are needed: it installs for your user into
+   `%LOCALAPPDATA%\Programs\Reminder Bubble` (choose *all users* on the first page if you prefer Program Files).
+3. Optional checkboxes: **start with Windows** and a **desktop shortcut**. Then tick *Launch Reminder Bubble*.
+
+Upgrading is the same: run the newer setup over the old one (your reminders are kept). Uninstall from
+*Settings → Apps*; it asks whether to delete your reminders too.
+
+Prefer no installer? `dist\ReminderBubble-win-x64.zip` (from `build.ps1` / the Actions artifact) is a portable copy:
+unzip and start `ReminderBubble.exe`, keeping the `wwwroot` folder next to it.
+
+## Using it
 
 * Click the bubble – open / close the panel · drag it – move it · right-click – menu
 * Tray icon: click to open, right-click for the menu (hide bubble, settings, quit)
@@ -44,9 +56,13 @@ Grab the zip from the [Actions](../../actions) build artifact (or build it yours
 Install the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0), then:
 
 ```powershell
-.\build.ps1            # tests + self-contained single-file publish -> dist\ReminderBubble-win-x64.zip
+.\build.ps1            # tests + publish -> dist\ReminderBubble-win-x64.zip and dist\ReminderBubble-Setup-<version>.exe
 .\build.ps1 -Run       # ... and launch it
 ```
+
+The installer is an [Inno Setup 6](https://jrsoftware.org/isinfo.php) script (`installer/ReminderBubble.iss`);
+`winget install JRSoftware.InnoSetup` once and `build.ps1` compiles it for you. Pushing a tag like `v1.0.1` makes
+GitHub Actions build the installer and attach it to a release.
 
 or just `dotnet run --project src/ReminderBubble` while developing. Set `RB_DEVTOOLS=1` to enable the WebView2 developer
 tools (F12 / right-click → Inspect).
@@ -62,6 +78,8 @@ src/ReminderBubble/
   Services/                     ReminderService (CRUD + scheduler), Recurrence, SettingsService, WebBridge, Chime ...
   Data/Database.cs              SQLite schema + helpers (Microsoft.Data.Sqlite)
   wwwroot/                      the UI: index.html (panel), alert.html, css/, js/
+installer/                    Inno Setup script + wizard artwork
+releases/                     the built installer, for convenience
 tests/ReminderBubble.Tests      xUnit: database, scheduler, recurrence, settings (runs on any OS)
 tests/ui                        parser tests + browser flow tests (Playwright) against the mock backend
 ```

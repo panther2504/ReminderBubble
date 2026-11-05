@@ -1,15 +1,21 @@
 <#
-  Builds Reminder Bubble into dist\ReminderBubble-win-x64.zip (a single ReminderBubble.exe plus its wwwroot folder).
+  Builds Reminder Bubble:
+    dist\ReminderBubble-win-x64.zip            a single ReminderBubble.exe plus its wwwroot folder (portable)
+    dist\ReminderBubble-Setup-<version>.exe    the installer (needs Inno Setup 6, see below)
 
-    .\build.ps1                 # publish + zip
-    .\build.ps1 -Run            # publish, then start it
+    .\build.ps1                 # tests + publish + zip + installer
+    .\build.ps1 -Run            # ... then start the published app
     .\build.ps1 -SkipTests      # skip the unit tests
+    .\build.ps1 -SkipInstaller  # zip only
 
   Needs the .NET 8 SDK (https://dotnet.microsoft.com/download/dotnet/8.0).
+  The installer step needs Inno Setup 6 (https://jrsoftware.org/isdl.php  or  `winget install JRSoftware.InnoSetup`);
+  if it is not installed that step is skipped with a warning.
 #>
 param(
     [switch]$Run,
     [switch]$SkipTests,
+    [switch]$SkipInstaller,
     [string]$Runtime = 'win-x64'
 )
 $ErrorActionPreference = 'Stop'
@@ -34,6 +40,24 @@ New-Item -ItemType Directory -Force $dist | Out-Null
 $zip = Join-Path $dist "ReminderBubble-$Runtime.zip"
 if (Test-Path $zip) { Remove-Item $zip }
 Compress-Archive -Path (Join-Path $out '*') -DestinationPath $zip
-Write-Host "== Done: $zip" -ForegroundColor Green
+Write-Host "== Zip: $zip" -ForegroundColor Green
+
+if (-not $SkipInstaller) {
+    $version = ([xml](Get-Content (Join-Path $root 'src\ReminderBubble\ReminderBubble.csproj'))).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+    $candidates = @(
+        (Get-Command iscc -ErrorAction SilentlyContinue).Source,
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+        "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+        "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+    ) | Where-Object { $_ -and (Test-Path $_) }
+    if ($candidates) {
+        Write-Host "== Building installer ($version)" -ForegroundColor Cyan
+        & ($candidates | Select-Object -First 1) "/DAppVersion=$version" "/DSourceDir=$out" (Join-Path $root 'installer\ReminderBubble.iss')
+        if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+        Write-Host "== Installer: $(Join-Path $dist "ReminderBubble-Setup-$version.exe")" -ForegroundColor Green
+    } else {
+        Write-Warning 'Inno Setup 6 was not found - skipping the installer. Install it with: winget install JRSoftware.InnoSetup'
+    }
+}
 
 if ($Run) { Start-Process (Join-Path $out 'ReminderBubble.exe') }

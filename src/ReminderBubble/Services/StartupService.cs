@@ -8,6 +8,17 @@ public static class StartupService
     const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     const string ValueName = "ReminderBubble";
 
+    /// <summary>True when the Run entry exists (written by the app's own setting or by the installer's "start with Windows" option).</summary>
+    public static bool IsEnabled()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(RunKey, writable: false);
+            return key?.GetValue(ValueName) is string { Length: > 0 };
+        }
+        catch (Exception ex) { Log.Write("StartupService: " + ex.Message); return false; }
+    }
+
     public static void Apply(bool enabled)
     {
         try

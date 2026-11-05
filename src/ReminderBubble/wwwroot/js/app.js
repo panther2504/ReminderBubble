@@ -3,7 +3,7 @@
   'use strict';
 
   const {
-    $, $$, h, esc, icon, startOfDay, addDays, sameDay, dayDiff, pad2, fmtTime, fmtDateShort, fmtDateLong, fmtMonth,
+    $, $$, h, esc, icon, startOfDay, addDays, sameDay, dayDiff, pad2, fmtTime, fmtTimeSec, fmtDateShort, fmtDateLong, fmtMonth,
     whenLabel, lcFirst, dueInfo, snoozeOptions, REPEAT, hydrate, dehydrate,
   } = Core;
   const { popover, closePopover, toast, createList } = UI;
@@ -458,7 +458,7 @@
 
   function renderSheet() {
     $('#dateText').textContent = dateLabel(draft.due);
-    $('#timeText').textContent = fmtTime(draft.due);
+    $('#timeText').textContent = fmtTimeSec(draft.due);
 
     $('#qchips').innerHTML = quickSet.map((q, i) => `<button type="button" class="chipbtn${draft.quick === i ? ' on' : ''}" data-i="${i}">${esc(q.label)}</button>`).join('');
     $('#fRepeat').innerHTML = Object.keys(REPEAT).map((k) => `<button type="button" class="chipbtn${draft.repeat === k ? ' on' : ''}" data-v="${k}">${REPEAT[k]}</button>`).join('');
@@ -531,29 +531,50 @@
       const d = draft.due, c24 = Core.S.clock24, pm = d.getHours() >= 12;
       if (b.dataset.h != null) { const v = Number(b.dataset.h); d.setHours(c24 ? v : (v % 12) + (pm ? 12 : 0)); }
       if (b.dataset.m != null) d.setMinutes(Number(b.dataset.m));
+      if (b.dataset.s != null) d.setSeconds(Number(b.dataset.s));
       if (b.dataset.ap != null) { const h12 = d.getHours() % 12; d.setHours(h12 + (b.dataset.ap === 'pm' ? 12 : 0)); }
-      d.setSeconds(0, 0); draft.quick = null; renderSheet(); syncTimeSel(true);
+      d.setMilliseconds(0); draft.quick = null; renderSheet(); syncTimeSel(true); syncTimeInput();
     }
   });
+
+  // typed entry: "7:05:30 pm", "19:05:30", "7:05" ...
+  $('#dbody').addEventListener('change', (e) => {
+    if (e.target.id !== 'tType') return;
+    const m = /^\s*(\d{1,2})\s*[:.]\s*(\d{1,2})(?:\s*[:.]\s*(\d{1,2}))?\s*([ap])?\.?m?\.?\s*$/i.exec(e.target.value);
+    let ok = !!m;
+    if (m) {
+      let hh = Number(m[1]); const mm = Number(m[2]), ss = Number(m[3] || 0), ap = m[4] && m[4].toLowerCase();
+      if (ap) { if (hh < 1 || hh > 12) ok = false; hh = (hh % 12) + (ap === 'p' ? 12 : 0); }
+      if (hh > 23 || mm > 59 || ss > 59) ok = false;
+      if (ok) { draft.due.setHours(hh, mm, ss, 0); draft.quick = null; renderSheet(); syncTimeSel(true); }
+    }
+    e.target.classList.toggle('bad', !ok);
+    if (ok) syncTimeInput();
+  });
+  function syncTimeInput() { const t = $('#tType'); if (t && document.activeElement !== t) { t.value = fmtTimeSec(draft.due); t.classList.remove('bad'); } }
 
   function renderTime(fresh) {
     const c24 = Core.S.clock24;
     const hours = c24 ? Array.from({ length: 24 }, (_, i) => i) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
-    const mins = Array.from({ length: 12 }, (_, i) => i * 5);
-    const m = draft.due.getMinutes(); if (!mins.includes(m)) { mins.push(m); mins.sort((a, b) => a - b); }
+    const sixty = Array.from({ length: 60 }, (_, i) => i);          // every minute and every second, 00-59
     $('#dbody').innerHTML =
-      `<div class="dbody"><div class="tcols"><div class="tcol" data-col="h">${hours.map((v) => `<button type="button" data-h="${v}">${c24 ? pad2(v) : v}</button>`).join('')}</div>` +
-      `<div class="tcol" data-col="m">${mins.map((v) => `<button type="button" data-m="${v}">${pad2(v)}</button>`).join('')}</div>` +
-      (c24 ? '<div></div>' : `<div class="tcol ap"><button type="button" data-ap="am">AM</button><button type="button" data-ap="pm">PM</button></div>`) +
+      `<div class="dbody"><label class="ttype">${icon('clock')}<input id="tType" type="text" inputmode="numeric" autocomplete="off" spellcheck="false" aria-label="Type a time (hh:mm:ss)" placeholder="hh:mm:ss"></label>` +
+      `<div class="tlabels${c24 ? ' c24' : ''}"><span>Hour</span><span>Min</span><span>Sec</span>${c24 ? '' : '<span></span>'}</div>` +
+      `<div class="tcols${c24 ? ' c24' : ''}"><div class="tcol" data-col="h">${hours.map((v) => `<button type="button" data-h="${v}">${c24 ? pad2(v) : v}</button>`).join('')}</div>` +
+      `<div class="tcol" data-col="m">${sixty.map((v) => `<button type="button" data-m="${v}">${pad2(v)}</button>`).join('')}</div>` +
+      `<div class="tcol" data-col="s">${sixty.map((v) => `<button type="button" data-s="${v}">${pad2(v)}</button>`).join('')}</div>` +
+      (c24 ? '' : `<div class="tcol ap"><button type="button" data-ap="am">AM</button><button type="button" data-ap="pm">PM</button></div>`) +
       `</div></div>`;
     if (!fresh) $('#dbody .dbody').style.animation = 'none';
     syncTimeSel(false);
+    syncTimeInput();
   }
   function syncTimeSel(smooth) {
     const d = draft.due, c24 = Core.S.clock24;
     const h = c24 ? d.getHours() : (d.getHours() % 12 || 12);
     $$('#dbody [data-h]').forEach((b) => b.classList.toggle('on', Number(b.dataset.h) === h));
     $$('#dbody [data-m]').forEach((b) => b.classList.toggle('on', Number(b.dataset.m) === d.getMinutes()));
+    $$('#dbody [data-s]').forEach((b) => b.classList.toggle('on', Number(b.dataset.s) === d.getSeconds()));
     $$('#dbody [data-ap]').forEach((b) => b.classList.toggle('on', (b.dataset.ap === 'pm') === (d.getHours() >= 12)));
     $$('#dbody .tcol:not(.ap)').forEach((col) => {
       const on = $('button.on', col);

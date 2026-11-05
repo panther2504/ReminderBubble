@@ -54,8 +54,12 @@
   const pad2 = (n) => String(n).padStart(2, '0');
 
   const S = { clock24: false };          // updated from settings
-  const timeFmt = () => new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', hour12: !S.clock24 });
-  const fmtTime = (d) => timeFmt().format(d).replace(/\s([AaPp]\.?[Mm]\.?)$/, '\u202f$1');   // keep "AM" glued to the time
+  const timeFmt = (sec) => new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', ...(sec ? { second: '2-digit' } : {}), hour12: !S.clock24 });
+  const glue = (t) => t.replace(/\s([AaPp]\.?[Mm]\.?)$/, '\u202f$1');   // keep "AM" glued to the time
+  /** hh:mm (seconds are shown only when the reminder has them). */
+  const fmtTime = (d) => glue(timeFmt(d.getSeconds() !== 0).format(d));
+  /** always hh:mm:ss */
+  const fmtTimeSec = (d) => glue(timeFmt(true).format(d));
   const fmtDateShort = (d) => new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(d);
   const fmtDateLong = (d) => new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).format(d);
   const fmtMonth = (d) => new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(d);
@@ -134,7 +138,7 @@
   if (mq && mq.addEventListener) mq.addEventListener('change', () => applySettings());
 
   window.Core = {
-    $, $$, h, esc, icon, startOfDay, addDays, sameDay, dayDiff, pad2, fmtTime, fmtDateShort, fmtDateLong, fmtMonth,
+    $, $$, h, esc, icon, startOfDay, addDays, sameDay, dayDiff, pad2, fmtTime, fmtTimeSec, fmtDateShort, fmtDateLong, fmtMonth,
     relShort, whenLabel, lcFirst, dueInfo, snoozeOptions, REPEAT, hydrate, dehydrate, applySettings, S,
   };
 })();

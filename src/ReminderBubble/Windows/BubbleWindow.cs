@@ -22,19 +22,19 @@ namespace ReminderBubble.Windows;
 /// </summary>
 public sealed class BubbleWindow : Window
 {
-    /// <summary>DIPs of room around the circle for the pulse rings, the contact shadow and the badge.</summary>
+    /// <summary>DIPs of room around the circle for the pulse rings and the badge.</summary>
     const double Pad = 46;
     public const int MinSize = 40, MaxSize = 160;
 
     // ---- visuals ---------------------------------------------------------------------------
     readonly Grid _root = new() { Background = Brushes.Transparent };
     readonly Grid _circle = new();
-    readonly Ellipse _shadow = new(), _ring1 = new(), _ring2 = new();
+    readonly Ellipse _ring1 = new(), _ring2 = new();
     readonly Viewbox _sphereBox = new();
     readonly Ellipse _body = new(), _edge = new(), _refl = new(), _rim = new(), _spec = new();
     readonly System.Windows.Shapes.Path _gloss = new();
     RadialGradientBrush _bodyBrush = new();
-    readonly TranslateTransform _glossShift = new(), _shadowShift = new();
+    readonly TranslateTransform _glossShift = new();
     readonly RotateTransform _bellRot = new() { CenterX = 100, CenterY = 48 };
     readonly Border _badge = new();
     readonly TextBlock _badgeText = new();
@@ -136,15 +136,13 @@ public sealed class BubbleWindow : Window
 
     void BuildVisuals()
     {
-        // contact shadow and pulse rings sit behind the sphere
-        _shadow.Fill = new RadialGradientBrush(Color.FromArgb(120, 0, 0, 0), Colors.Transparent) { Center = new Point(.5, .5), RadiusX = .5, RadiusY = .5 };
-        _shadow.RenderTransform = _shadowShift;
+        // pulse rings sit behind the sphere
         _ring1.Fill = null; _ring2.Fill = null;
         _ring1.StrokeThickness = 2; _ring2.StrokeThickness = 2;
         _ring1.Opacity = 0; _ring2.Opacity = 0;
         _ring1.RenderTransformOrigin = new Point(.5, .5); _ring2.RenderTransformOrigin = new Point(.5, .5);
         _ring1.RenderTransform = _ringScale1; _ring2.RenderTransform = _ringScale2;
-        foreach (var e in new[] { _shadow, _ring1, _ring2 }) e.IsHitTestVisible = false;
+        foreach (var e in new[] { _ring1, _ring2 }) e.IsHitTestVisible = false;
 
         // ---- the sphere (design space 200 x 200, sphere radius 80) ----
         var design = new Canvas { Width = 200, Height = 200, IsHitTestVisible = false };
@@ -237,7 +235,6 @@ public sealed class BubbleWindow : Window
         _circle.Children.Add(_badge);
         _circle.Children.Add(_grip);
 
-        _root.Children.Add(_shadow);
         _root.Children.Add(_ring1);
         _root.Children.Add(_ring2);
         _root.Children.Add(_circle);
@@ -292,8 +289,6 @@ public sealed class BubbleWindow : Window
         _root.Width = _root.Height = w;
         _circle.Width = _circle.Height = _size;
         foreach (var e in new[] { _ring1, _ring2 }) e.Width = e.Height = _size;
-        _shadow.Width = _size * .95; _shadow.Height = _size * .17;
-        _shadowShift.Y = _size * .545;
         _ringTarget = (_size + Pad * 1.7) / _size;
 
         var k = Math.Clamp(_size / 64.0, .8, 1.3);                  // keep the badge in proportion

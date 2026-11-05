@@ -22,14 +22,14 @@ namespace ReminderBubble.Windows;
 /// </summary>
 public sealed class BubbleWindow : Window
 {
-    /// <summary>DIPs of room around the circle for the glow, the pulse rings, the shadow and the badge.</summary>
+    /// <summary>DIPs of room around the circle for the pulse rings, the contact shadow and the badge.</summary>
     const double Pad = 46;
     public const int MinSize = 40, MaxSize = 160;
 
     // ---- visuals ---------------------------------------------------------------------------
     readonly Grid _root = new() { Background = Brushes.Transparent };
     readonly Grid _circle = new();
-    readonly Ellipse _shadow = new(), _glow = new(), _ring1 = new(), _ring2 = new();
+    readonly Ellipse _shadow = new(), _ring1 = new(), _ring2 = new();
     readonly Viewbox _sphereBox = new();
     readonly Ellipse _body = new(), _edge = new(), _refl = new(), _rim = new(), _spec = new();
     readonly System.Windows.Shapes.Path _gloss = new();
@@ -134,7 +134,7 @@ public sealed class BubbleWindow : Window
 
     void BuildVisuals()
     {
-        // ground shadow, glow and pulse rings sit behind the sphere
+        // contact shadow and pulse rings sit behind the sphere
         _shadow.Fill = new RadialGradientBrush(Color.FromArgb(120, 0, 0, 0), Colors.Transparent) { Center = new Point(.5, .5), RadiusX = .5, RadiusY = .5 };
         _shadow.RenderTransform = _shadowShift;
         _ring1.Fill = null; _ring2.Fill = null;
@@ -142,9 +142,7 @@ public sealed class BubbleWindow : Window
         _ring1.Opacity = 0; _ring2.Opacity = 0;
         _ring1.RenderTransformOrigin = new Point(.5, .5); _ring2.RenderTransformOrigin = new Point(.5, .5);
         _ring1.RenderTransform = _ringScale1; _ring2.RenderTransform = _ringScale2;
-        _glow.RenderTransformOrigin = new Point(.5, .5);
-        _glow.Opacity = .85;
-        foreach (var e in new[] { _shadow, _glow, _ring1, _ring2 }) e.IsHitTestVisible = false;
+        foreach (var e in new[] { _shadow, _ring1, _ring2 }) e.IsHitTestVisible = false;
 
         // ---- the sphere (design space 200 x 200, sphere radius 80) ----
         var design = new Canvas { Width = 200, Height = 200, IsHitTestVisible = false };
@@ -238,7 +236,6 @@ public sealed class BubbleWindow : Window
         _circle.Children.Add(_grip);
 
         _root.Children.Add(_shadow);
-        _root.Children.Add(_glow);
         _root.Children.Add(_ring1);
         _root.Children.Add(_ring2);
         _root.Children.Add(_circle);
@@ -283,8 +280,6 @@ public sealed class BubbleWindow : Window
             new(Color.FromArgb(13, 255, 255, 255), .6), new(WithAlpha(rimc, .75), 1),
         }, new Point(0, 0), new Point(1, 1));
 
-        _glow.Fill = new RadialGradientBrush(Color.FromArgb(105, b.R, b.G, b.B), Color.FromArgb(0, b.R, b.G, b.B))
-        { Center = new Point(.5, .5), RadiusX = .5, RadiusY = .5 };
         _ring1.Stroke = new SolidColorBrush(a); _ring2.Stroke = new SolidColorBrush(b);
     }
 
@@ -297,7 +292,6 @@ public sealed class BubbleWindow : Window
         foreach (var e in new[] { _ring1, _ring2 }) e.Width = e.Height = _size;
         _shadow.Width = _size * .95; _shadow.Height = _size * .17;
         _shadowShift.Y = _size * .545;
-        _glow.Width = _glow.Height = _size + Pad * 1.7;
         _ringTarget = (_size + Pad * 1.7) / _size;
 
         var k = Math.Clamp(_size / 64.0, .8, 1.3);                  // keep the badge in proportion
@@ -447,7 +441,6 @@ public sealed class BubbleWindow : Window
         {
             _hover = true; _idle.Stop(); Reveal();
             if (!_pressed) ScaleTo(1.06, 220);
-            GlowTo(1.0, 220);
             ShowGrip(true);
         };
         _root.MouseLeave += (_, _) =>
@@ -455,7 +448,6 @@ public sealed class BubbleWindow : Window
             if (_resizing) return;
             _hover = false;
             if (!_pressed) ScaleTo(1.0, 280);
-            GlowTo(.85, 280);
             ShowGrip(false);
             TiltTo(0, 0);
             RestartIdle();
@@ -545,7 +537,7 @@ public sealed class BubbleWindow : Window
             _resizing = false;
             _grip.ReleaseMouseCapture();
             CommitSize();
-            if (!_root.IsMouseOver) { _hover = false; ScaleTo(1.0, 280); GlowTo(.85, 280); ShowGrip(false); RestartIdle(); }
+            if (!_root.IsMouseOver) { _hover = false; ScaleTo(1.0, 280); ShowGrip(false); RestartIdle(); }
             e.Handled = true;
         };
     }
@@ -624,9 +616,6 @@ public sealed class BubbleWindow : Window
         _scale.BeginAnimation(ScaleTransform.ScaleXProperty, a);
         _scale.BeginAnimation(ScaleTransform.ScaleYProperty, a);
     }
-
-    void GlowTo(double v, double ms) =>
-        _glow.BeginAnimation(OpacityProperty, new DoubleAnimation(v, TimeSpan.FromMilliseconds(ms)) { EasingFunction = EaseOut });
 
     // ======================================================================================
     // Placement: free anywhere (default), or glued to a screen edge

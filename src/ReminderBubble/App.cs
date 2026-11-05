@@ -58,6 +58,7 @@ public sealed class App : Application
             Bubble.Clicked += TogglePanel;
             Bubble.MenuAction += OnBubbleMenu;
             Bubble.PositionChanged += (x, y) => Settings.SetBubblePosition(x, y);
+            Bubble.Moved += FollowBubble;
             Bubble.SizeCommitted += size =>
             {
                 // resized with the wheel / grip / menu: persist it and let the settings page follow
@@ -175,15 +176,37 @@ public sealed class App : Application
     System.Drawing.Rectangle WorkAreaNearBubble() => Forms.Screen.FromRectangle(Bubble.RestBounds).WorkingArea;
 
     /// <summary>Puts a window beside the bubble on whichever side has room, vertically centred on it, kept on-screen.</summary>
-    (int x, int y, int dir) PlaceBeside(WebHostWindow w)
+    readonly Dictionary<WebHostWindow, int> _side = new();
+
+    /// <summary>Keeps an open panel / alert attached to the bubble while it is dragged, resized or snapped.</summary>
+    void FollowBubble()
     {
-        var circle = Bubble.RestBounds;
+        if (Panel is { IsShown: true }) { var (x, y, _) = PlaceBeside(Panel, follow: true); Panel.Relocate(x, y); }
+        if (Alert is { IsShown: true }) { var (x, y, _) = PlaceBeside(Alert, follow: true); Alert.Relocate(x, y); }
+    }
+
+    /// <summary>
+    /// Puts a window beside the bubble on whichever side has room, vertically centred on it, kept on-screen.
+    /// While following a moving bubble it keeps its current side until that side no longer fits, so it does not flip mid-drag.
+    /// </summary>
+    (int x, int y, int dir) PlaceBeside(WebHostWindow w, bool follow = false)
+    {
+        var circle = follow ? Bubble.CircleBounds : Bubble.RestBounds;
         var work = Forms.Screen.FromRectangle(circle).WorkingArea;
         var dpi = w.Dpi;
         int pw = (int)Math.Round(w.Width * dpi), ph = (int)Math.Round(w.Height * dpi);
         int gap = (int)Math.Round(14 * dpi), edge = (int)Math.Round(8 * dpi);
 
         var onRight = circle.Left + circle.Width / 2 < work.Left + work.Width / 2;
+        if (follow && _side.TryGetValue(w, out var last))
+        {
+            var rightFits = circle.Right + gap + pw <= work.Right - edge;
+            var leftFits = circle.Left - gap - pw >= work.Left + edge;
+            onRight = last > 0
+                ? rightFits || !leftFits          // was on the right: stay unless it no longer fits and the left does
+                : !leftFits && rightFits;         // was on the left: stay unless it no longer fits and the right does
+        }
+        _side[w] = onRight ? 1 : -1;
         var x = onRight ? circle.Right + gap : circle.Left - gap - pw;
         x = Math.Clamp(x, work.Left + edge, Math.Max(work.Left + edge, work.Right - pw - edge));
         var y = circle.Top + circle.Height / 2 - ph / 2;

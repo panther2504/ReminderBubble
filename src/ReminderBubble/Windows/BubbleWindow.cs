@@ -63,6 +63,8 @@ public sealed class BubbleWindow : Window
     public event Action<double, double>? PositionChanged;
     /// <summary>The user finished resizing the bubble (DIPs). Persist it.</summary>
     public event Action<int>? SizeCommitted;
+    /// <summary>The window moved or changed size (drag, snap animation, resize). Open popups follow it.</summary>
+    public event Action? Moved;
 
     public BubbleWindow(AppSettings settings)
     {
@@ -328,6 +330,7 @@ public sealed class BubbleWindow : Window
         Native.SetWindowPos(_hwnd, IntPtr.Zero, (int)Math.Round(cx - w / 2.0), (int)Math.Round(cy - w / 2.0), w, w, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
         var d = (SPx - oldSpx) / 2;
         _circleX -= d; _circleY -= d;
+        Moved?.Invoke();
     }
 
     // ======================================================================================
@@ -480,7 +483,11 @@ public sealed class BubbleWindow : Window
                 SetOpacityNow(_s.BubbleOpacity);
                 ShowGrip(false);
             }
-            if (_dragging) Native.Move(_hwnd, _pressWindow.X + dx, _pressWindow.Y + dy);   // anywhere, on any monitor
+            if (_dragging)
+            {
+                Native.Move(_hwnd, _pressWindow.X + dx, _pressWindow.Y + dy);   // anywhere, on any monitor
+                Moved?.Invoke();
+            }
         };
         _root.MouseLeftButtonUp += (_, e) =>
         {
@@ -567,7 +574,7 @@ public sealed class BubbleWindow : Window
     {
         var (x, y) = RestWindowPos(_dock, Area());
         _circleX = x + PadPx; _circleY = y + PadPx;
-        if (!_peeking) Native.Move(_hwnd, x, y);
+        if (!_peeking) { Native.Move(_hwnd, x, y); Moved?.Invoke(); }
     }
 
     // ---- pointer-following highlight: the glass catches the "light" from where the mouse is ------
@@ -668,12 +675,12 @@ public sealed class BubbleWindow : Window
     {
         _moveTween?.Stop();
         if (_hwnd == IntPtr.Zero) return;
-        if (ms <= 0) { Native.Move(_hwnd, x, y); done?.Invoke(); return; }
+        if (ms <= 0) { Native.Move(_hwnd, x, y); Moved?.Invoke(); done?.Invoke(); return; }
         var r = Native.GetRect(_hwnd);
         int x0 = r.Left, y0 = r.Top;
         _moveTween = Tween.Run(ms, ease,
-            t => Native.Move(_hwnd, (int)Math.Round(Tween.Lerp(x0, x, t)), (int)Math.Round(Tween.Lerp(y0, y, t))),
-            () => { Native.Move(_hwnd, x, y); done?.Invoke(); });
+            t => { Native.Move(_hwnd, (int)Math.Round(Tween.Lerp(x0, x, t)), (int)Math.Round(Tween.Lerp(y0, y, t))); Moved?.Invoke(); },
+            () => { Native.Move(_hwnd, x, y); Moved?.Invoke(); done?.Invoke(); });
     }
 
     void SavePosition() => PositionChanged?.Invoke(_circleX, _circleY);

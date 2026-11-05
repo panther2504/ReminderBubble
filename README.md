@@ -38,9 +38,9 @@ Everything is stored locally in `%LOCALAPPDATA%\ReminderBubble\reminders.db`. No
 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) – already part of Windows 11 and current
 Windows 10, and the installer downloads it for you if it is missing.
 
-1. Run **`releases/ReminderBubble-Setup-1.1.1.exe`** (a small ~3 MB download; it fetches the .NET 8 Desktop Runtime and the
+1. Run **`releases/ReminderBubble-Setup-1.1.2.exe`** (a small ~3 MB download; it fetches the .NET 8 Desktop Runtime and the
    WebView2 Runtime during setup only if they are missing). No internet on the target PC? Use
-   `ReminderBubble-Setup-1.1.1-offline.exe` (~60 MB, everything bundled) from [Actions](../../actions) / [releases](../../releases).
+   `ReminderBubble-Setup-1.1.2-offline.exe` (~60 MB, everything bundled) from [Actions](../../actions) / [releases](../../releases).
 2. Next → Next → Install. No administrator rights are needed: it installs for your user into
    `%LOCALAPPDATA%\Programs\Reminder Bubble` (choose *all users* on the first page if you prefer Program Files).
 3. Optional checkboxes: **start with Windows** and a **desktop shortcut**. Then tick *Launch Reminder Bubble*.
@@ -53,6 +53,7 @@ unzip and start `ReminderBubble.exe`, keeping the `wwwroot` folder next to it.
 
 ## Using it
 
+* The open panel follows the bubble when you move or resize it
 * Click the bubble – open / close the panel · drag it – move it anywhere · scroll or drag its corner grip – resize ·
   right-click – menu
 * Tray icon: click to open, right-click for the menu (hide bubble, settings, quit)

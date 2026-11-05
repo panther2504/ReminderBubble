@@ -31,6 +31,15 @@ public sealed class WebHostWindow : Window
     Tween? _tween;
     bool _allowClose;
 
+    // "genie" open/close: the panel grows out of the bubble and shrinks back into it (see GenieShow / GenieHide)
+    const double OpenMs = 460, CloseMs = 340;
+    Action<bool>? _onBegin;
+    DispatcherTimer? _beginGuard;
+    bool _genieRunning;
+
+    /// <summary>Where the bubble is (screen px). When set, this window opens from / closes into that point.</summary>
+    public Func<System.Drawing.Point>? AnchorProvider { get; set; }
+
     public bool IsReady { get; private set; }
     /// <summary>Logically visible (true from the moment a show starts until a hide starts).</summary>
     public bool IsShown { get; private set; }
@@ -139,9 +148,10 @@ public sealed class WebHostWindow : Window
     int PxW => (int)Math.Round(Width * Dpi);
     int PxH => (int)Math.Round(Height * Dpi);
 
-    public void ShowAt(int x, int y, int dir, bool activate)
+    public void ShowAt(int x, int y, int dir, bool activate, System.Drawing.Point? anchor = null)
     {
         if (!IsReady) return;
+        if (anchor is { } a) { GenieShow(x, y, a, activate); return; }
         _tween?.Stop();
         var slide = (int)Math.Round(22 * Dpi);
 
@@ -165,6 +175,12 @@ public sealed class WebHostWindow : Window
     public void Relocate(int x, int y)
     {
         if (_hwnd == IntPtr.Zero || !IsVisible) return;
+        if (_genieRunning)
+        {
+            // mid-animation (e.g. the bubble is being dragged while the panel opens): just keep the window with it
+            Native.SetWindowPos(_hwnd, IntPtr.Zero, x, y, PxW, PxH, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            return;
+        }
         _tween?.Stop();
         Native.SetWindowPos(_hwnd, IntPtr.Zero, x, y, PxW, PxH, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
         Native.SetOpacity(_hwnd, 1);
@@ -173,6 +189,7 @@ public sealed class WebHostWindow : Window
     public void HideAnimated()
     {
         if (!IsShown) return;
+        if (AnchorProvider is { } anchor) { GenieHide(anchor()); return; }
         IsShown = false;
         LastHiddenUtc = DateTime.UtcNow;
         Post(new { ev = "hidden" });
@@ -182,6 +199,90 @@ public sealed class WebHostWindow : Window
         _tween = Tween.Run(170, Ease.InCubic,
             t => { Native.Move(_hwnd, x0, y + (int)Math.Round(slide * t)); Native.SetOpacity(_hwnd, 1 - t); },
             () => { Hide(); Native.SetOpacity(_hwnd, 1); Hidden?.Invoke(this); });
+    }
+
+    // ---- genie -----------------------------------------------------------------------------------
+    // Two layers move together so it looks like one window scaling out of the bubble:
+    //   * the PAGE scales/fades its whole UI from the bubble's position (GPU compositor, buttery),
+    //   * the native WINDOW is clipped to a rounded shape following the exact same curve (SetWindowRgn), so no
+    //     full-size rectangle is ever visible. The page tells us when its animation starts (anim.begin) so both begin together.
+    // The maths here must match genieRun() in wwwroot/js/app.js: s = size progress, sx = s^1.18, sy = s^0.92.
+
+    /// <summary>Called (via the bridge) by the page when its own open / close animation has started.</summary>
+    public void OnAnimBegin(bool instant)
+    {
+        var action = _onBegin; _onBegin = null; _beginGuard?.Stop();
+        action?.Invoke(instant);
+    }
+
+    void WhenPageBegins(Action<bool> action)
+    {
+        _onBegin = action;
+        _beginGuard?.Stop();
+        _beginGuard = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
+        _beginGuard.Tick += (_, _) => OnAnimBegin(false);          // the page did not answer in time: go anyway
+        _beginGuard.Start();
+    }
+
+    void ApplyRegion(double s, int w, int h, double ax, double ay)
+    {
+        s = Math.Clamp(s, 0, 1);
+        double sx = Math.Pow(s, 1.18), sy = Math.Pow(s, 0.92);
+        double left = ax * (1 - sx), top = ay * (1 - sy);
+        int l = (int)Math.Round(Math.Clamp(left, 0, w)), t = (int)Math.Round(Math.Clamp(top, 0, h));
+        int r = (int)Math.Round(Math.Clamp(left + w * sx, 0, w)), b = (int)Math.Round(Math.Clamp(top + h * sy, 0, h));
+        if (r - l < 2) r = Math.Min(w, l + 2);
+        if (b - t < 2) b = Math.Min(h, t + 2);
+        var radius = Tween.Lerp(Math.Min(r - l, b - t) / 2.0, 10 * Dpi, s * s * (3 - 2 * s));      // circle -> rounded rectangle
+        var rgn = Native.CreateRoundRectRgn(l, t, r + 1, b + 1, (int)(radius * 2), (int)(radius * 2));
+        Native.SetWindowRgn(_hwnd, rgn, true);
+    }
+
+    void RunRegion(bool open, bool instant, int w, int h, double ax, double ay)
+    {
+        _tween?.Stop();
+        if (instant) { FinishGenie(open); return; }
+        _tween = Tween.Run(open ? OpenMs : CloseMs, open ? Ease.OutQuint : Ease.InOutCubic,
+            e => ApplyRegion(open ? e : 1 - e, w, h, ax, ay),
+            () => FinishGenie(open));
+    }
+
+    void FinishGenie(bool open)
+    {
+        _genieRunning = false;
+        if (!open) { Post(new { ev = "hidden" }); Hide(); }
+        Native.SetWindowRgn(_hwnd, IntPtr.Zero, true);          // back to the native shape (rounded corners + shadow)
+        if (!open) Hidden?.Invoke(this);
+    }
+
+    void GenieShow(int x, int y, System.Drawing.Point anchor, bool activate)
+    {
+        _tween?.Stop();
+        int w = PxW, h = PxH;
+        double ax = anchor.X - x, ay = anchor.Y - y;
+        _genieRunning = true;
+        Native.SetOpacity(_hwnd, 1);
+        ApplyRegion(0, w, h, ax, ay);                                // nothing visible yet: the window is clipped to a point
+        if (!IsVisible) { ShowActivated = activate; Show(); }
+        Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, x, y, w, h, Native.SWP_NOACTIVATE);
+        IsShown = true;
+        if (activate) Activate();
+        Post(new { ev = "shown" });
+        Post(new { ev = "expand", data = new { ox = ax / Dpi, oy = ay / Dpi, dur = OpenMs } });
+        WhenPageBegins(instant => RunRegion(true, instant, w, h, ax, ay));
+    }
+
+    void GenieHide(System.Drawing.Point anchor)
+    {
+        IsShown = false;
+        LastHiddenUtc = DateTime.UtcNow;
+        _tween?.Stop();
+        var r = Native.GetRect(_hwnd);
+        int w = r.Right - r.Left, h = r.Bottom - r.Top;
+        double ax = anchor.X - r.Left, ay = anchor.Y - r.Top;
+        _genieRunning = true;
+        Post(new { ev = "collapse", data = new { ox = ax / Dpi, oy = ay / Dpi, dur = CloseMs } });
+        WhenPageBegins(instant => RunRegion(false, instant, w, h, ax, ay));
     }
 
     async void OnDeactivated(object? sender, EventArgs e)

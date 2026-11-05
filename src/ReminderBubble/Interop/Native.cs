@@ -30,6 +30,9 @@ internal static class Native
     [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+    [DllImport("gdi32.dll")] public static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+    /// <summary>The system owns the region after this call (do not delete it). IntPtr.Zero removes the clip.</summary>
+    [DllImport("user32.dll")] public static extern int SetWindowRgn(IntPtr hWnd, IntPtr hRgn, [MarshalAs(UnmanagedType.Bool)] bool redraw);
     [DllImport("dwmapi.dll")] public static extern int DwmSetWindowAttribute(IntPtr hWnd, int attr, ref int value, int size);
 
     public static RECT GetRect(IntPtr hWnd) { GetWindowRect(hWnd, out var r); return r; }
@@ -39,6 +42,14 @@ internal static class Native
 
     public static void Move(IntPtr hWnd, int x, int y) =>
         SetWindowPos(hWnd, IntPtr.Zero, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+    /// <summary>
+    /// Makes a window - and everything inside it, WebView2 included - invisible while it stays "shown" (so its page keeps
+    /// rendering). A window region clips the whole window; layered-window transparency does not reach WebView2's content.
+    /// </summary>
+    public static void ClipAway(IntPtr hWnd) => SetWindowRgn(hWnd, CreateRectRgn(0, 0, 1, 1), true);
+
+    public static void Unclip(IntPtr hWnd) => SetWindowRgn(hWnd, IntPtr.Zero, true);
 
     public static void KeepOnTop(IntPtr hWnd) =>
         SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);

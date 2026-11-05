@@ -155,6 +155,7 @@ public sealed class WebHostWindow : Window
         // (Windows' own "animation effects" switch is honoured: off -> the quick fade below)
         if (anchor is { } a && SystemParameters.ClientAreaAnimation) { GenieShow(x, y, a, activate); return; }
         _tween?.Stop();
+        Native.Unclip(_hwnd);
         var slide = (int)Math.Round(22 * Dpi);
 
         Native.SetOpacity(_hwnd, 0);
@@ -244,7 +245,8 @@ public sealed class WebHostWindow : Window
         _overlay?.Abort(); _overlay = null;
         _genieRunning = true;
 
-        Native.SetOpacity(_hwnd, 0);                                 // present (so the page renders) but invisible
+        Native.SetOpacity(_hwnd, 1);
+        Native.ClipAway(_hwnd);                                      // present (so the page keeps rendering) but invisible
         if (!IsVisible) { ShowActivated = activate; Show(); }
         Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, x, y, PxW, PxH, Native.SWP_NOACTIVATE);
         IsShown = true;
@@ -273,19 +275,19 @@ public sealed class WebHostWindow : Window
         if (snapshot is null)                                        // could not capture: fall back to a simple fade
         {
             _genieRunning = false;
-            if (open) _tween = Tween.Run(220, Ease.OutCubic, t => Native.SetOpacity(_hwnd, t), () => Native.SetOpacity(_hwnd, 1));
+            if (open) Native.Unclip(_hwnd);                         // just show it
             else LegacyHide();
             return;
         }
 
         var overlay = _overlay = new GenieOverlay();
         overlay.Start(snapshot, rect, new System.Drawing.Point(anchor.x, anchor.y), anchor.r, open, open ? OpenMs : CloseMs, Dpi,
-            onFirstFrame: () => { if (token == _genieToken && !open) Hide(); },     // the overlay now stands in for the window
+            onFirstFrame: () => { if (token == _genieToken && !open) { Hide(); Native.Unclip(_hwnd); } },   // the overlay now stands in for the window
             onDone: () =>
             {
                 if (token != _genieToken) return;
                 _genieRunning = false;
-                if (open) Native.SetOpacity(_hwnd, 1);                              // real window on, THEN overlay off: no flash
+                if (open) Native.Unclip(_hwnd);                                     // real window on, THEN overlay off: no flash
                 else { Post(new { ev = "hidden" }); Hidden?.Invoke(this); }
                 _overlay = null;
                 overlay.Close();

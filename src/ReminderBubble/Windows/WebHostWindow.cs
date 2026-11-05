@@ -37,6 +37,10 @@ public sealed class WebHostWindow : Window
     int _genieToken;                 // bumped by every show/hide so a superseded animation quietly stops
     GenieOverlay? _overlay;
     bool _genieRunning;
+    bool _clipped;                   // the window is clipped to nothing (invisible) - re-applied if WPF resets it
+    bool _parked;                    // moved far off-screen while the overlay plays
+    int _targetX, _targetY;          // where the window belongs (kept up to date if the bubble moves meanwhile)
+    const int ParkX = -20000;
 
     /// <summary>The bubble (screen px: centre x, centre y, radius). When set, this window opens from / closes into it.</summary>
     public Func<(int x, int y, int r)>? AnchorProvider { get; set; }
@@ -81,10 +85,23 @@ public sealed class WebHostWindow : Window
             int dark = 1, round = 2;                                  // DWMWA_USE_IMMERSIVE_DARK_MODE, DWMWCP_ROUND
             Native.DwmSetWindowAttribute(_hwnd, 20, ref dark, sizeof(int));
             Native.DwmSetWindowAttribute(_hwnd, 33, ref round, sizeof(int));
+            HwndSource.FromHwnd(_hwnd)?.AddHook(WndProc);
         };
         Deactivated += OnDeactivated;
         Closing += (_, e) => { if (!_allowClose) { e.Cancel = true; HideAnimated(); } };
     }
+
+    /// <summary>WPF's window chrome clears the window region on show / resize. While we want the window invisible, put the clip back.</summary>
+    IntPtr WndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        const int WM_SIZE = 0x0005, WM_SHOWWINDOW = 0x0018, WM_WINDOWPOSCHANGED = 0x0047;
+        if (_clipped && msg is WM_SIZE or WM_SHOWWINDOW or WM_WINDOWPOSCHANGED)
+            Dispatcher.InvokeAsync(() => { if (_clipped) Native.ClipAway(_hwnd); }, DispatcherPriority.Send);
+        return IntPtr.Zero;
+    }
+
+    void ClipWindow() { _clipped = true; Native.ClipAway(_hwnd); }
+    void UnclipWindow() { _clipped = false; Native.Unclip(_hwnd); }
 
     // ---- start-up ----------------------------------------------------------------------------
     /// <summary>Creates the browser (the window has to be shown once for that) and loads the page, then hides again.</summary>
@@ -155,7 +172,8 @@ public sealed class WebHostWindow : Window
         // (Windows' own "animation effects" switch is honoured: off -> the quick fade below)
         if (anchor is { } a && SystemParameters.ClientAreaAnimation) { GenieShow(x, y, a, activate); return; }
         _tween?.Stop();
-        Native.Unclip(_hwnd);
+        _parked = false;
+        UnclipWindow();
         var slide = (int)Math.Round(22 * Dpi);
 
         Native.SetOpacity(_hwnd, 0);
@@ -180,8 +198,9 @@ public sealed class WebHostWindow : Window
         if (_hwnd == IntPtr.Zero || !IsVisible) return;
         if (_genieRunning)
         {
-            // mid-animation (e.g. the bubble is being dragged while the panel opens): just keep the window with it
-            Native.SetWindowPos(_hwnd, IntPtr.Zero, x, y, PxW, PxH, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+            // mid-animation (e.g. the bubble is being dragged while the panel opens): remember where it belongs
+            _targetX = x; _targetY = y;
+            if (!_parked) Native.SetWindowPos(_hwnd, IntPtr.Zero, x, y, PxW, PxH, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
             return;
         }
         _tween?.Stop();
@@ -244,13 +263,17 @@ public sealed class WebHostWindow : Window
         _tween?.Stop();
         _overlay?.Abort(); _overlay = null;
         _genieRunning = true;
+        _parked = false;
+        _targetX = x; _targetY = y;
 
         Native.SetOpacity(_hwnd, 1);
-        Native.ClipAway(_hwnd);                                      // present (so the page keeps rendering) but invisible
         if (!IsVisible) { ShowActivated = activate; Show(); }
         Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, x, y, PxW, PxH, Native.SWP_NOACTIVATE);
         IsShown = true;
         if (activate) Activate();
+        // Present (so the page keeps rendering) but invisible. This must come AFTER Show / SetWindowPos / Activate:
+        // WPF's window chrome resets the window region whenever the window is shown or resized.
+        ClipWindow();
         Post(new { ev = "shown" });
         _ = RunGenie(true, token, new System.Drawing.Rectangle(x, y, PxW, PxH), anchor, 60);
     }
@@ -263,6 +286,8 @@ public sealed class WebHostWindow : Window
         _tween?.Stop();
         _overlay?.Abort(); _overlay = null;
         _genieRunning = true;
+        if (_parked) { _parked = false; Native.Move(_hwnd, _targetX, _targetY); }   // interrupted an opening: bring it back to snapshot it
+        UnclipWindow();
         var r = Native.GetRect(_hwnd);
         _ = RunGenie(false, token, new System.Drawing.Rectangle(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top), anchor, 0);
     }
@@ -275,22 +300,36 @@ public sealed class WebHostWindow : Window
         if (snapshot is null)                                        // could not capture: fall back to a simple fade
         {
             _genieRunning = false;
-            if (open) Native.Unclip(_hwnd);                         // just show it
+            if (open) { _parked = false; Native.Move(_hwnd, rect.Left, rect.Top); UnclipWindow(); }   // just show it
             else LegacyHide();
             return;
         }
 
+        if (open)
+        {
+            // From here the real window must be completely invisible: clip it AND park it off-screen.
+            ClipWindow();
+            _parked = true;
+            Native.Move(_hwnd, ParkX, rect.Top);
+        }
         var overlay = _overlay = new GenieOverlay();
         overlay.Start(snapshot, rect, new System.Drawing.Point(anchor.x, anchor.y), anchor.r, open, open ? OpenMs : CloseMs, Dpi,
-            onFirstFrame: () => { if (token == _genieToken && !open) { Hide(); Native.Unclip(_hwnd); } },   // the overlay now stands in for the window
+            onFirstFrame: () =>
+            {
+                if (token != _genieToken) return;
+                if (!open) { Hide(); UnclipWindow(); }                                    // closing: the overlay now stands in for the window
+            },
             onDone: () =>
             {
                 if (token != _genieToken) return;
                 _genieRunning = false;
-                if (open) Native.Unclip(_hwnd);                                     // real window on, THEN overlay off: no flash
-                else { Post(new { ev = "hidden" }); Hidden?.Invoke(this); }
                 _overlay = null;
-                overlay.Close();
+                if (!open) { Post(new { ev = "hidden" }); Hidden?.Invoke(this); overlay.Close(); return; }
+                // opening: put the real window back in place and visible, give it a moment to paint, THEN remove the overlay (no flash)
+                _parked = false;
+                Native.Move(_hwnd, _targetX, _targetY);
+                UnclipWindow();
+                _ = Task.Delay(90).ContinueWith(_ => Dispatcher.Invoke(overlay.Abort));
             });
     }
 

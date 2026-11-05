@@ -38,9 +38,9 @@ Everything is stored locally in `%LOCALAPPDATA%\ReminderBubble\reminders.db`. No
 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) – already part of Windows 11 and current
 Windows 10, and the installer downloads it for you if it is missing.
 
-1. Run **`releases/ReminderBubble-Setup-1.2.0.exe`** (a small ~3 MB download; it fetches the .NET 8 Desktop Runtime and the
+1. Run **`releases/ReminderBubble-Setup-1.2.1.exe`** (a small ~3 MB download; it fetches the .NET 8 Desktop Runtime and the
    WebView2 Runtime during setup only if they are missing). No internet on the target PC? Use
-   `ReminderBubble-Setup-1.2.0-offline.exe` (~60 MB, everything bundled) from [Actions](../../actions) / [releases](../../releases).
+   `ReminderBubble-Setup-1.2.1-offline.exe` (~60 MB, everything bundled) from [Actions](../../actions) / [releases](../../releases).
 2. Next → Next → Install. No administrator rights are needed: it installs for your user into
    `%LOCALAPPDATA%\Programs\Reminder Bubble` (choose *all users* on the first page if you prefer Program Files).
 3. Optional checkboxes: **start with Windows** and a **desktop shortcut**. Then tick *Launch Reminder Bubble*.
@@ -53,11 +53,13 @@ unzip and start `ReminderBubble.exe`, keeping the `wwwroot` folder next to it.
 
 ## Updates
 
-Installed copies keep themselves current. About 45 seconds after start (then every 6 hours) Reminder Bubble looks at this
-repository's **latest GitHub release**; if it is newer it downloads the installer in the background, checks its SHA-256
+Installed copies keep themselves current. About 45 seconds after start, and then on a schedule **you choose** in
+*Settings → Check for updates* (**Instant** = every minute, 15 min, 1 hour, 6 hours, daily, or any custom number of
+minutes / hours / days, up to 7 days; default 6 hours), Reminder Bubble looks at this repository's **latest GitHub release**; if it is newer it downloads the installer in the background, checks its SHA-256
 digest, and shows **Update x.y.z is ready · Restart & update** at the top of the panel. One click runs the installer
 silently (your reminders and settings are kept) and reopens the app. It never restarts on its own.
-*Settings → Update automatically* turns the background check off; *Check now* still works.
+*Settings → Update automatically* turns the background check off; *Check now* still works. Checks are conditional
+requests (ETag), so even "Instant" costs almost nothing against GitHub's rate limit.
 
 **Publishing an update** (maintainers):
 

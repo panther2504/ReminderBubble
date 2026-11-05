@@ -135,6 +135,50 @@ public sealed class UpdateCheckerTests
         Assert.Equal("1.2.0", info!.Version);
     }
 
+    /// <summary>Behaves like GitHub: 200 + ETag the first time, 304 when the caller sends that ETag back.</summary>
+    sealed class EtagServer(string body) : HttpMessageHandler
+    {
+        public List<string?> IfNoneMatch { get; } = new();
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var sent = request.Headers.TryGetValues("If-None-Match", out var v) ? v.First() : null;
+            IfNoneMatch.Add(sent);
+            if (sent == "\"v1\"") return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotModified));
+            var resp = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
+            resp.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"v1\"");
+            return Task.FromResult(resp);
+        }
+    }
+
+    [Fact]
+    public async Task Repeat_checks_are_conditional_so_checking_every_minute_does_not_burn_the_rate_limit()
+    {
+        var server = new EtagServer(Release());
+        var http = new HttpClient(server);
+        var feed = new UpdateFeed();
+
+        var first = await UpdateChecker.CheckAsync(http, Current, feed);
+        var second = await UpdateChecker.CheckAsync(http, Current, feed);
+        var third = await UpdateChecker.CheckAsync(http, Current, feed);
+
+        Assert.Equal("1.2.0", first!.Version);
+        Assert.Same(first, second);                 // answered from the cache
+        Assert.Same(first, third);
+        Assert.Equal(new string?[] { null, "\"v1\"", "\"v1\"" }, server.IfNoneMatch);
+    }
+
+    [Fact]
+    public async Task A_cached_answer_of_no_update_is_remembered_too()
+    {
+        var server = new EtagServer(Release("v1.1.3"));       // same version as running
+        var http = new HttpClient(server);
+        var feed = new UpdateFeed();
+
+        Assert.Null(await UpdateChecker.CheckAsync(http, Current, feed));
+        Assert.Null(await UpdateChecker.CheckAsync(http, Current, feed));
+        Assert.Equal("\"v1\"", server.IfNoneMatch[1]);
+    }
+
     [Fact]
     public async Task CheckAsync_explains_a_missing_release_and_other_http_errors()
     {

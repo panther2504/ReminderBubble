@@ -126,13 +126,15 @@ public sealed class App : Application
         }
     }
 
-    /// <summary>First check shortly after start-up, then every few hours, while "automatic updates" is on.</summary>
+    DispatcherTimer? _updateTimer;
+
+    /// <summary>First check shortly after start-up, then on the configured interval (Settings), while automatic updates are on.</summary>
     void StartUpdateChecks()
     {
         void Check() { if (Settings.Current.AutoUpdate) _ = Updates.CheckAsync(manual: false); }
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
-        timer.Tick += (_, _) => Check();
-        timer.Start();
+        _updateTimer = new DispatcherTimer();
+        _updateTimer.Tick += (_, _) => Check();
+        ApplyUpdateSchedule();
         var first = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
         first.Tick += (_, _) => { first.Stop(); Check(); };
         first.Start();
@@ -248,8 +250,18 @@ public sealed class App : Application
         ShowAlert();
     }
 
+    /// <summary>(Re)arms the periodic update check from the "check every" setting.</summary>
+    void ApplyUpdateSchedule()
+    {
+        if (_updateTimer is null) return;
+        _updateTimer.Stop();
+        _updateTimer.Interval = TimeSpan.FromMinutes(Settings.Current.UpdateIntervalMinutes);
+        _updateTimer.Start();
+    }
+
     void OnSettingsChanged(AppSettings s)
     {
+        ApplyUpdateSchedule();
         Bubble.ApplySettings(s);
         StartupService.Apply(s.StartWithWindows);
         Panel.Post(new { ev = "settings", data = s });

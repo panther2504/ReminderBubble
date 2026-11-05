@@ -7,3 +7,4 @@ dist/
 *.suo
 node_modules/
 tools/shots/
+tests/ui/*.png

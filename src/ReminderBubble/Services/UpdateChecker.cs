@@ -6,6 +6,17 @@ namespace ReminderBubble.Services;
 public sealed record UpdateInfo(string Version, string Url, string FileName, string? Sha256, string Notes, string PageUrl);
 
 /// <summary>
+/// Remembers the last answer and its ETag so repeat checks can be conditional. GitHub does not count a
+/// "304 Not Modified" against the rate limit, which is what makes checking every minute affordable.
+/// </summary>
+public sealed class UpdateFeed
+{
+    public string? ETag { get; set; }
+    public UpdateInfo? Cached { get; set; }
+    public bool HasCache { get; set; }
+}
+
+/// <summary>
 /// Looks at the project's latest GitHub release and decides whether it is newer than the running version.
 /// Pure logic (no UI, no files) so it can be unit-tested.
 /// </summary>
@@ -77,16 +88,20 @@ public static class UpdateChecker
     static bool Bool(JsonElement e, string name) => e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
 
     /// <summary>Asks GitHub for the latest release. Throws with a readable message when it cannot be reached.</summary>
-    public static async Task<UpdateInfo?> CheckAsync(HttpClient http, Version current, CancellationToken ct = default)
+    public static async Task<UpdateInfo?> CheckAsync(HttpClient http, Version current, UpdateFeed? feed = null, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, LatestUrl);
         req.Headers.TryAddWithoutValidation("Accept", "application/vnd.github+json");
+        if (feed is { HasCache: true, ETag: { Length: > 0 } tag }) req.Headers.TryAddWithoutValidation("If-None-Match", tag);
         using var resp = await http.SendAsync(req, ct).ConfigureAwait(false);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotModified && feed is { HasCache: true }) return feed.Cached;
         if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
             throw new InvalidOperationException("No published release was found (the repository must be public and have a release).");
         if (!resp.IsSuccessStatusCode)
             throw new InvalidOperationException($"GitHub answered {(int)resp.StatusCode}.");
         var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-        return Parse(json, current);
+        var info = Parse(json, current);
+        if (feed is not null) { feed.ETag = resp.Headers.ETag?.Tag; feed.Cached = info; feed.HasCache = true; }
+        return info;
     }
 }

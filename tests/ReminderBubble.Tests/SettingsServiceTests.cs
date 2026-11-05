@@ -82,6 +82,24 @@ public sealed class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public void Update_check_interval_defaults_to_six_hours_and_is_configurable_from_instant_to_a_week()
+    {
+        var s = new SettingsService(_t.Db);
+        Assert.Equal(360, s.Current.UpdateIntervalMinutes);
+
+        s.Patch(Json("""{ "updateIntervalMinutes": 1 }"""));            // "instant": every minute
+        Assert.Equal(1, s.Current.UpdateIntervalMinutes);
+        s.Patch(Json("""{ "updateIntervalMinutes": 90 }"""));           // 1 h 30 min
+        Assert.Equal(90, s.Current.UpdateIntervalMinutes);
+        s.Patch(Json("""{ "updateIntervalMinutes": 0 }"""));
+        Assert.Equal(1, s.Current.UpdateIntervalMinutes);
+        s.Patch(Json("""{ "updateIntervalMinutes": 999999 }"""));
+        Assert.Equal(7 * 24 * 60, s.Current.UpdateIntervalMinutes);
+
+        Assert.Equal(7 * 24 * 60, new SettingsService(_t.Db).Current.UpdateIntervalMinutes);   // persisted
+    }
+
+    [Fact]
     public void Bubble_size_can_be_anywhere_in_the_supported_range()
     {
         var s = new SettingsService(_t.Db);

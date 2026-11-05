@@ -618,6 +618,17 @@
   // ======================================================================================
   // Settings
   // ======================================================================================
+  /** "Instant" = every minute (checks are conditional requests, so this stays within GitHub's rate limit). */
+  const UPDATE_PRESETS = [{ label: 'Instant', min: 1 }, { label: '15 min', min: 15 }, { label: '1 hour', min: 60 }, { label: '6 hours', min: 360 }, { label: 'Daily', min: 1440 }];
+  const MAX_UPDATE_MIN = 7 * 24 * 60;
+  /** 90 -> {n: 90, unit: 1}, 120 -> {n: 2, unit: 60}, 2880 -> {n: 2, unit: 1440} */
+  function splitInterval(m) { const unit = m % 1440 === 0 ? 1440 : m % 60 === 0 ? 60 : 1; return { n: m / unit, unit }; }
+  function intervalText(m) {
+    if (m <= 1) return 'every minute — near-instant';
+    const { n, unit } = splitInterval(m);
+    return `every ${n === 1 ? '' : n + ' '}${unit === 1440 ? (n === 1 ? 'day' : 'days') : unit === 60 ? (n === 1 ? 'hour' : 'hours') : (n === 1 ? 'minute' : 'minutes')}`;
+  }
+
   const toggleRow = (key, label, sub) =>
     `<div class="srow"><div class="lbl"><b>${label}</b>${sub ? `<small>${sub}</small>` : ''}</div><button type="button" class="switch" role="switch" data-key="${key}" aria-checked="false" aria-label="${label}"></button></div>`;
 
@@ -642,6 +653,10 @@
       `</div>` +
       `<div class="group">` +
       toggleRow('autoUpdate', 'Update automatically', 'Checks for new versions in the background and downloads them') +
+      `<div class="srow col" id="upEveryRow"><div class="lbl"><b>Check for updates</b><small id="upEveryHint"></small></div>` +
+      `<div class="wrap" id="upPresets">${UPDATE_PRESETS.map((p) => `<button type="button" class="chipbtn" data-m="${p.min}">${p.label}</button>`).join('')}</div>` +
+      `<div class="every"><span>Every</span><input type="number" id="upEvery" min="1" step="1" inputmode="numeric" aria-label="Check interval">` +
+      `<div class="seg" id="upUnit"><i class="pill"></i><button type="button" data-u="1">minutes</button><button type="button" data-u="60">hours</button><button type="button" data-u="1440">days</button></div></div></div>` +
       `<div class="srow"><div class="lbl"><b id="upVer">Version</b><small id="upStatus"></small></div><button type="button" class="btn" id="upCheck"></button></div>` +
       `</div>` +
       `<div class="group">` +
@@ -676,6 +691,7 @@
     const tuck = $('#setBody .switch[data-key=autoHide]');
     if (tuck) { tuck.closest('.srow').style.opacity = s.snapToEdge ? '' : '.45'; tuck.disabled = !s.snapToEdge; }
     $$('#stSnooze .chipbtn').forEach((b) => b.classList.toggle('on', Number(b.dataset.v) === s.defaultSnooze));
+    syncInterval();
     const size = $('#stSize'), op = $('#stOpacity');
     if (document.activeElement !== size) size.value = s.bubbleSize;
     if (document.activeElement !== op) op.value = Math.round(s.bubbleOpacity * 100);
@@ -684,6 +700,28 @@
     $('#stSizeOut').textContent = size.value + ' px';
     $('#stOpacityOut').textContent = op.value + '%';
     $('#stAbout').innerHTML = `Reminder Bubble ${esc(state.info.version || '')}<br>${esc(state.info.dbPath || '')}`;
+  }
+
+  let everyUnit = 1;     // the unit the user is working in; stays put while they type so 60 min does not turn into 1 hour mid-edit
+  function syncInterval() {
+    const s = state.settings, m = s.updateIntervalMinutes || 360, input = $('#upEvery');
+    const editing = document.activeElement === input;
+    if (!editing) everyUnit = splitInterval(m).unit;
+    const unit = everyUnit, n = m / unit;
+    $$('#upPresets .chipbtn').forEach((b) => b.classList.toggle('on', Number(b.dataset.m) === m));
+    $$('#upUnit button').forEach((b) => b.classList.toggle('on', Number(b.dataset.u) === unit));
+    placePill($('#upUnit'));
+    if (!editing) input.value = Number.isInteger(n) ? n : Math.round(n * 100) / 100;
+    input.max = Math.floor(MAX_UPDATE_MIN / unit);
+    $('#upEveryHint').textContent = s.autoUpdate === false ? 'Automatic updates are off - use Check now' : `Checks ${intervalText(m)}`;
+    const row = $('#upEveryRow'); row.style.opacity = s.autoUpdate === false ? '.45' : '';
+    $$('#upEveryRow button, #upEvery').forEach((e) => { e.disabled = s.autoUpdate === false; });
+  }
+
+  /** Applies a number + unit from the custom fields (clamped to 1 minute .. 7 days). */
+  function setIntervalFromFields(n, unit) {
+    if (!Number.isFinite(n) || n < 1) return;
+    patch({ updateIntervalMinutes: Math.min(MAX_UPDATE_MIN, Math.max(1, Math.round(n * unit))) }, 250);
   }
 
   function bindSettings() {
@@ -710,6 +748,10 @@
     });
     $('#stSize').addEventListener('input', (e) => patch({ bubbleSize: Number(e.target.value) }, 60));
     $('#stOpacity').addEventListener('input', (e) => patch({ bubbleOpacity: Number(e.target.value) / 100 }, 60));
+    $('#upPresets').addEventListener('click', (e) => { const b = e.target.closest('.chipbtn'); if (b) patch({ updateIntervalMinutes: Number(b.dataset.m) }); });
+    $('#upEvery').addEventListener('input', (e) => setIntervalFromFields(Number(e.target.value), everyUnit));
+    $('#upEvery').addEventListener('blur', syncInterval);
+    $('#upUnit').addEventListener('click', (e) => { const b = e.target.closest('button'); if (!b) return; everyUnit = Number(b.dataset.u); setIntervalFromFields(Number($('#upEvery').value) || 1, everyUnit); });
   }
 
   async function sendTest() {

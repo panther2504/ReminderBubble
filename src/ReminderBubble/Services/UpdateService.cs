@@ -13,6 +13,7 @@ public sealed class UpdateService
     readonly SettingsService _settings;
     readonly HttpClient _http;
     readonly Version _current;
+    readonly UpdateFeed _feed = new();
     readonly string _dir = Path.Combine(Log.Dir, "updates");
     string? _file;
 
@@ -60,7 +61,7 @@ public sealed class UpdateService
         if (!wasReady) { State = "checking"; Error = null; Notify(); }
         try
         {
-            var info = await UpdateChecker.CheckAsync(_http, _current).ConfigureAwait(true);
+            var info = await UpdateChecker.CheckAsync(_http, _current, _feed).ConfigureAwait(true);
             LastChecked = DateTime.UtcNow;
             if (info is null) { if (!wasReady) { State = "uptodate"; Latest = null; } }
             else if (wasReady && Latest?.Version == info.Version) { /* already downloaded */ }

@@ -18,6 +18,8 @@ public sealed class AppSettings
     public bool Clock24 { get; set; }
     /// <summary>Check GitHub for new versions in the background and download them (installing always waits for a click).</summary>
     public bool AutoUpdate { get; set; } = true;
+    /// <summary>How often to look for a new version, in minutes. 1 = "instant" (every minute); up to 7 days.</summary>
+    public int UpdateIntervalMinutes { get; set; } = 360;
     public int DefaultSnooze { get; set; } = 10;
     public bool Welcomed { get; set; }
 
@@ -25,6 +27,7 @@ public sealed class AppSettings
     public int Version { get; set; }
     public const int CurrentVersion = 2;
     public const int MinBubbleSize = 40, MaxBubbleSize = 160;
+    public const int MinUpdateMinutes = 1, MaxUpdateMinutes = 7 * 24 * 60;
 
     // Last bubble position (top-left of the circle, physical pixels). Written by the bubble itself.
     public double? BubbleX { get; set; }
@@ -40,6 +43,7 @@ public sealed class AppSettings
         BubbleSize = Math.Clamp(BubbleSize, MinBubbleSize, MaxBubbleSize);
         BubbleOpacity = Math.Clamp(BubbleOpacity, 0.35, 1.0);
         DefaultSnooze = Math.Clamp(DefaultSnooze, 1, 1440);
+        UpdateIntervalMinutes = Math.Clamp(UpdateIntervalMinutes, MinUpdateMinutes, MaxUpdateMinutes);
         if (!SnapToEdge) AutoHide = false;
     }
 }

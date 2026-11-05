@@ -299,3 +299,12 @@ html.preview .app { width: 408px; height: 660px; border-radius: 22px; box-shadow
 .uptx small { display: block; margin-top: 1px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .upbar.busy .btn { display: none; }
 .srow .lbl small.err { color: var(--danger); }
+
+/* ---- update interval ----------------------------------------------------------------------- */
+.every { display: flex; align-items: center; gap: 10px; }
+.every > span { font-size: 13px; color: var(--muted); font-weight: 600; }
+.every input { width: 74px; height: 38px; padding: 0 10px; text-align: center; border-radius: 12px; background: var(--card); border: 1px solid var(--line); color: var(--text); font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; transition: border-color .25s, box-shadow .25s; -moz-appearance: textfield; }
+.every input:focus { border-color: var(--accent-line); box-shadow: 0 0 0 4px var(--accent-soft); }
+.every input::-webkit-inner-spin-button, .every input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.every .seg { flex: 1; min-width: 0; }
+.every .seg button { height: 30px; padding: 0 6px; font-size: 12.5px; }

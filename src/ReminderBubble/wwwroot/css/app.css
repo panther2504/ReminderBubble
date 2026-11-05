@@ -123,8 +123,16 @@
 .empty.show { opacity: 1; transform: none; transition-delay: .12s; }
 .empty .art { position: relative; width: 112px; height: 112px; margin-bottom: 18px; display: grid; place-items: center; animation: floaty 5s ease-in-out infinite; }
 .empty .art::before { content: ""; position: absolute; inset: 6px; border-radius: 50%; background: var(--grad); opacity: .22; filter: blur(22px); }
-.empty .art .orb { position: relative; width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: var(--grad); box-shadow: 0 18px 40px -12px color-mix(in srgb, var(--a1) 80%, transparent), inset 0 2px 0 rgba(255, 255, 255, .35), inset 0 -10px 20px rgba(0, 0, 0, .12); }
-.empty .art .orb svg.i { width: 36px; height: 36px; stroke-width: 1.9; }
+.empty .art .orb {
+  position: relative; width: 84px; height: 84px; border-radius: 50%; display: grid; place-items: center; color: #fff;
+  background: radial-gradient(circle at 33% 24%, color-mix(in srgb, var(--a2) 38%, #fff) 0%, var(--a2) 26%, var(--a1) 62%, color-mix(in srgb, var(--a1) 40%, #000) 100%);
+  box-shadow: 0 20px 40px -12px color-mix(in srgb, var(--a1) 80%, transparent), inset 0 0 0 1.5px rgba(255, 255, 255, .3), inset 0 -16px 26px -8px rgba(255, 255, 255, .28), inset 0 10px 18px -6px rgba(0, 0, 0, .12);
+}
+.empty .art .orb::after { /* the glossy dome of the glass sphere */
+  content: ""; position: absolute; left: 13%; right: 13%; top: 4%; height: 44%; border-radius: 50% 50% 46% 46% / 78% 78% 26% 26%; pointer-events: none;
+  background: linear-gradient(rgba(255, 255, 255, .85), rgba(255, 255, 255, .22) 55%, rgba(255, 255, 255, .02));
+}
+.empty .art .orb svg.i { position: relative; z-index: 1; width: 36px; height: 36px; stroke-width: 1.9; filter: drop-shadow(0 3px 3px rgba(30, 10, 80, .45)); }
 .empty .art i.ring1, .empty .art i.ring2 { position: absolute; inset: 0; border-radius: 50%; border: 1.5px solid var(--a1); opacity: 0; animation: emptyRing 3.4s ease-out infinite; }
 .empty .art i.ring2 { animation-delay: 1.7s; }
 .empty h3 { margin: 0 0 6px; font-size: 17px; font-weight: 650; letter-spacing: -.01em; }

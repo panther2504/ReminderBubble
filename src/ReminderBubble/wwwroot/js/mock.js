@@ -5,7 +5,7 @@
   if (window.chrome && window.chrome.webview) return;       // real host present - not needed
 
   const K = 'rb.mock.reminders', KS = 'rb.mock.settings', KN = 'rb.mock.next';
-  const DEFAULTS = { theme: 'dark', accent: 'violet', bubbleSize: 64, bubbleOpacity: 1, snapToEdge: true, autoHide: true, sound: true, startWithWindows: false, clock24: false, defaultSnooze: 10, welcomed: true };
+  const DEFAULTS = { theme: 'dark', accent: 'violet', bubbleSize: 64, bubbleOpacity: 1, snapToEdge: false, autoHide: false, sound: true, startWithWindows: false, clock24: false, defaultSnooze: 10, welcomed: true };
   const iso = (d) => new Date(d).toISOString();
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };

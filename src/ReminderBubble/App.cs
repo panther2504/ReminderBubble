@@ -58,6 +58,12 @@ public sealed class App : Application
             Bubble.Clicked += TogglePanel;
             Bubble.MenuAction += OnBubbleMenu;
             Bubble.PositionChanged += (x, y) => Settings.SetBubblePosition(x, y);
+            Bubble.SizeCommitted += size =>
+            {
+                // resized with the wheel / grip / menu: persist it and let the settings page follow
+                if (Settings.Current.BubbleSize != size)
+                    Settings.Patch(JsonDocument.Parse($"{{\"bubbleSize\":{size}}}").RootElement);
+            };
             Bubble.ShowAtStartup(Settings.Current.BubbleX, Settings.Current.BubbleY);
             Bubble.SetCount(Reminders.ActiveCount());
 

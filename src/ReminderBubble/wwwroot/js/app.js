@@ -18,7 +18,7 @@
 
   const state = {
     reminders: [],
-    settings: { theme: 'dark', accent: 'violet', bubbleSize: 64, bubbleOpacity: 1, snapToEdge: true, autoHide: true, sound: true, startWithWindows: false, clock24: false, defaultSnooze: 10 },
+    settings: { theme: 'dark', accent: 'violet', bubbleSize: 64, bubbleOpacity: 1, snapToEdge: false, autoHide: false, sound: true, startWithWindows: false, clock24: false, defaultSnooze: 10 },
     info: { version: '', dbPath: '' },
     tab: 'today',
     query: '',
@@ -607,10 +607,10 @@
       `<div class="srow col"><div class="lbl"><b>Accent colour</b><small>Tints the bubble and the interface</small></div><div class="swatches" id="stAccent">${COLORS.map((c) => `<button type="button" class="sw c-${c}" data-v="${c}" aria-label="${c}">${icon('check')}</button>`).join('')}</div></div>` +
       `</div>` +
       `<div class="group">` +
-      `<div class="srow col"><div class="lbl"><b>Bubble size</b></div><div class="rng"><input type="range" id="stSize" min="44" max="96" step="2" aria-label="Bubble size"><output id="stSizeOut"></output></div></div>` +
+      `<div class="srow col"><div class="lbl"><b>Bubble size</b><small>Also: scroll over the bubble, or drag the grip that appears on its corner</small></div><div class="rng"><input type="range" id="stSize" min="40" max="160" step="2" aria-label="Bubble size"><output id="stSizeOut"></output></div></div>` +
       `<div class="srow col"><div class="lbl"><b>Bubble opacity</b></div><div class="rng"><input type="range" id="stOpacity" min="35" max="100" step="5" aria-label="Bubble opacity"><output id="stOpacityOut"></output></div></div>` +
-      toggleRow('snapToEdge', 'Snap to screen edge', 'Glues itself to the nearest side when you let go') +
-      toggleRow('autoHide', 'Tuck away when idle', 'Slides half off-screen until you hover it') +
+      toggleRow('snapToEdge', 'Snap to screen edge', 'Off: the bubble stays exactly where you drop it, anywhere on any screen') +
+      toggleRow('autoHide', 'Tuck away when idle', 'Needs snapping - slides half off-screen until you hover it') +
       `</div>` +
       `<div class="group">` +
       toggleRow('sound', 'Alert sound', 'A soft chime when a reminder is due') +
@@ -647,6 +647,8 @@
     placePill($('#stTheme'));
     $$('#stAccent .sw').forEach((b) => b.classList.toggle('on', b.dataset.v === s.accent));
     $$('#setBody .switch').forEach((b) => b.setAttribute('aria-checked', String(!!s[b.dataset.key])));
+    const tuck = $('#setBody .switch[data-key=autoHide]');
+    if (tuck) { tuck.closest('.srow').style.opacity = s.snapToEdge ? '' : '.45'; tuck.disabled = !s.snapToEdge; }
     $$('#stSnooze .chipbtn').forEach((b) => b.classList.toggle('on', Number(b.dataset.v) === s.defaultSnooze));
     const size = $('#stSize'), op = $('#stOpacity');
     if (document.activeElement !== size) size.value = s.bubbleSize;
@@ -663,7 +665,11 @@
     body.addEventListener('click', (e) => {
       const t = e.target;
       if (t.closest('#stClose')) return hideSheet();
-      const sw = t.closest('.switch'); if (sw) return patch({ [sw.dataset.key]: !state.settings[sw.dataset.key] });
+      const sw = t.closest('.switch');
+      if (sw) {
+        const key = sw.dataset.key, next = !state.settings[key];
+        return patch(key === 'snapToEdge' && !next ? { snapToEdge: false, autoHide: false } : { [key]: next });
+      }
       const th = t.closest('#stTheme button'); if (th) return patch({ theme: th.dataset.v });
       const ac = t.closest('#stAccent .sw'); if (ac) return patch({ accent: ac.dataset.v });
       const sn = t.closest('#stSnooze .chipbtn'); if (sn) return patch({ defaultSnooze: Number(sn.dataset.v) });

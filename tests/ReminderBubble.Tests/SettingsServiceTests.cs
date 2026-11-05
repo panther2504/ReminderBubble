@@ -19,7 +19,8 @@ public sealed class SettingsServiceTests : IDisposable
         Assert.True(s.IsFirstRun);
         Assert.Equal("dark", s.Current.Theme);
         Assert.Equal(64, s.Current.BubbleSize);
-        Assert.True(s.Current.SnapToEdge);
+        Assert.False(s.Current.SnapToEdge);                        // the bubble stays wherever it is dropped
+        Assert.False(s.Current.AutoHide);
         Assert.Equal(10, s.Current.DefaultSnooze);
     }
 
@@ -49,7 +50,7 @@ public sealed class SettingsServiceTests : IDisposable
     {
         var s = new SettingsService(_t.Db);
         s.Patch(Json("""{ "bubbleSize": 500, "bubbleOpacity": 0.01, "defaultSnooze": 0, "theme": "neon", "accent": "x" }"""));
-        Assert.Equal(96, s.Current.BubbleSize);
+        Assert.Equal(160, s.Current.BubbleSize);
         Assert.Equal(0.35, s.Current.BubbleOpacity);
         Assert.Equal(1, s.Current.DefaultSnooze);
         Assert.Equal("dark", s.Current.Theme);
@@ -72,8 +73,44 @@ public sealed class SettingsServiceTests : IDisposable
     public void Turning_off_snap_also_turns_off_auto_hide()
     {
         var s = new SettingsService(_t.Db);
+        s.Patch(Json("""{ "snapToEdge": true, "autoHide": true }"""));
+        Assert.True(s.Current.AutoHide);
+
         s.Patch(Json("""{ "snapToEdge": false }"""));
         Assert.False(s.Current.AutoHide);
+    }
+
+    [Fact]
+    public void Bubble_size_can_be_anywhere_in_the_supported_range()
+    {
+        var s = new SettingsService(_t.Db);
+        s.Patch(Json("""{ "bubbleSize": 40 }"""));
+        Assert.Equal(40, s.Current.BubbleSize);
+        s.Patch(Json("""{ "bubbleSize": 160 }"""));
+        Assert.Equal(160, s.Current.BubbleSize);
+        s.Patch(Json("""{ "bubbleSize": 10 }"""));
+        Assert.Equal(40, s.Current.BubbleSize);
+    }
+
+    [Fact]
+    public void Settings_saved_by_the_edge_snapping_version_are_moved_to_free_placement_once()
+    {
+        // what version 1 stored: snapping + auto-hide on, no version number, a custom size
+        using (var c = _t.Db.Open())
+            Database.Exec(c, "INSERT INTO settings (key, value) VALUES ('app', @v)",
+                ("@v", """{ "theme": "light", "bubbleSize": 80, "snapToEdge": true, "autoHide": true, "welcomed": true }"""));
+
+        var s = new SettingsService(_t.Db);
+
+        Assert.False(s.Current.SnapToEdge);
+        Assert.False(s.Current.AutoHide);
+        Assert.Equal("light", s.Current.Theme);                    // everything else is kept
+        Assert.Equal(80, s.Current.BubbleSize);
+        Assert.Equal(ReminderBubble.Models.AppSettings.CurrentVersion, s.Current.Version);
+
+        // the user turns snapping back on: the migration must not run again
+        s.Patch(Json("""{ "snapToEdge": true }"""));
+        Assert.True(new SettingsService(_t.Db).Current.SnapToEdge);
     }
 
     [Fact]

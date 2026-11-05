@@ -24,7 +24,19 @@ public sealed class SettingsService
         IsFirstRun = raw is null;
         try { Current = raw is null ? new AppSettings() : JsonSerializer.Deserialize<AppSettings>(raw, Json) ?? new AppSettings(); }
         catch (JsonException) { Current = new AppSettings(); }
+        if (raw is null) Current.Version = AppSettings.CurrentVersion;       // brand-new install: nothing to migrate
+
+        // v1 glued the bubble to a screen edge by default. v2 lets it sit anywhere; move existing installs over once.
+        var migrated = false;
+        if (raw is not null && Current.Version < AppSettings.CurrentVersion)
+        {
+            Current.SnapToEdge = false;
+            Current.AutoHide = false;
+            Current.Version = AppSettings.CurrentVersion;
+            migrated = true;
+        }
         Current.Normalize();
+        if (migrated) Save();
     }
 
     void Save()

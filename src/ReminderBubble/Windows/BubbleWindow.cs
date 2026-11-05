@@ -16,39 +16,53 @@ using Forms = System.Windows.Forms;
 namespace ReminderBubble.Windows;
 
 /// <summary>
-/// The floating, always-on-top bubble. Native WPF (a transparent layered window) so it can be perfectly round,
-/// glow, spring and pulse; the reminder UI itself lives in the HTML panel it opens.
+/// The floating, always-on-top bubble: a vector 3D glass sphere in a transparent layered window.
+/// It can be dragged anywhere on any monitor, resized (mouse wheel, the grip that appears on hover, the menu or the
+/// settings), and optionally glued to a screen edge. The reminder UI itself lives in the HTML panel it opens.
 /// </summary>
 public sealed class BubbleWindow : Window
 {
-    /// <summary>DIPs of room around the circle for the glow, the pulse rings and the badge.</summary>
+    /// <summary>DIPs of room around the circle for the glow, the pulse rings, the shadow and the badge.</summary>
     const double Pad = 46;
+    public const int MinSize = 40, MaxSize = 160;
 
     // ---- visuals ---------------------------------------------------------------------------
     readonly Grid _root = new() { Background = Brushes.Transparent };
     readonly Grid _circle = new();
-    readonly Ellipse _shadow = new(), _glow = new(), _body = new(), _sheen = new(), _rim = new(), _ring1 = new(), _ring2 = new();
-    readonly Viewbox _bell = new();
-    readonly RotateTransform _bellRot = new();
+    readonly Ellipse _shadow = new(), _glow = new(), _ring1 = new(), _ring2 = new();
+    readonly Viewbox _sphereBox = new();
+    readonly Ellipse _body = new(), _edge = new(), _refl = new(), _rim = new(), _spec = new();
+    readonly System.Windows.Shapes.Path _gloss = new();
+    RadialGradientBrush _bodyBrush = new();
+    readonly TranslateTransform _glossShift = new(), _shadowShift = new();
+    readonly RotateTransform _bellRot = new() { CenterX = 100, CenterY = 48 };
     readonly Border _badge = new();
     readonly TextBlock _badgeText = new();
-    readonly ScaleTransform _scale = new(1, 1), _ringScale1 = new(1, 1), _ringScale2 = new(1, 1), _badgeScale = new(0, 0);
+    readonly Border _grip = new();
+    readonly ScaleTransform _scale = new(1, 1), _ringScale1 = new(1, 1), _ringScale2 = new(1, 1), _badgeScale = new(0, 0), _gripScale = new(.6, .6);
 
     // ---- state -----------------------------------------------------------------------------
     AppSettings _s = new();
     IntPtr _hwnd;
     double _size = 64;
+    double _ringTarget = 1.9;
     int _dock;                      // -1 glued to the left edge, +1 right edge, 0 floating free
-    bool _peeking, _hover, _pressed, _dragging, _alerting, _panelOpen, _shown;
+    bool _peeking, _hover, _pressed, _dragging, _resizing, _alerting, _panelOpen, _shown;
     int _count;
     int _circleX, _circleY;         // resting top-left of the circle, physical px
+    double _tiltX, _tiltY;
     Drawing.Point _pressCursor, _pressWindow;
-    Tween? _moveTween;
+    Tween? _moveTween, _tiltTween;
     readonly DispatcherTimer _idle = new() { Interval = TimeSpan.FromMilliseconds(2600) };
     readonly DispatcherTimer _topmost = new() { Interval = TimeSpan.FromSeconds(3) };
+    readonly DispatcherTimer _commit = new() { Interval = TimeSpan.FromMilliseconds(450) };
 
     public event Action? Clicked;
     public event Action<string>? MenuAction;
+    /// <summary>The circle's resting position changed (top-left, physical px). Persist it.</summary>
+    public event Action<double, double>? PositionChanged;
+    /// <summary>The user finished resizing the bubble (DIPs). Persist it.</summary>
+    public event Action<int>? SizeCommitted;
 
     public BubbleWindow(AppSettings settings)
     {
@@ -60,8 +74,7 @@ public sealed class BubbleWindow : Window
         ShowInTaskbar = false;
         ShowActivated = false;
         Topmost = true;
-        SnapsToDevicePixels = true;
-        UseLayoutRounding = true;
+        SnapsToDevicePixels = false;       // the sphere is smooth vector art - never pixel-snap it
         Content = _root;
         _s = settings;
 
@@ -76,15 +89,17 @@ public sealed class BubbleWindow : Window
 
         _idle.Tick += (_, _) => { _idle.Stop(); DockAway(); };
         _topmost.Tick += (_, _) => { if (_shown && _hwnd != IntPtr.Zero) Native.KeepOnTop(_hwnd); };
+        _commit.Tick += (_, _) => { _commit.Stop(); CommitSize(); };
         ApplySettings(settings, initial: true);
     }
-
-    /// <summary>Sets the window opacity immediately, dropping any animation that is holding the previous value.</summary>
-    void SetOpacityNow(double v) { BeginAnimation(OpacityProperty, null); Opacity = v; }
 
     double Dpi => VisualTreeHelper.GetDpi(this).DpiScaleX;
     int SPx => (int)Math.Round(_size * Dpi);
     int PadPx => (int)Math.Round(Pad * Dpi);
+    int WinPx => (int)Math.Round((_size + 2 * Pad) * Dpi);
+
+    /// <summary>Sets the window opacity immediately, dropping any animation that is holding the previous value.</summary>
+    void SetOpacityNow(double v) { BeginAnimation(OpacityProperty, null); Opacity = v; }
 
     public bool IsAlerting => _alerting;
 
@@ -103,51 +118,76 @@ public sealed class BubbleWindow : Window
     public Drawing.Rectangle RestBounds => new(_circleX, _circleY, SPx, SPx);
 
     // ======================================================================================
-    // Visual tree
+    // Visual tree: a 3D glass sphere drawn in a 200 x 200 design space (scales to any size)
     // ======================================================================================
+    static Color Lighten(Color c, double t) => Color.FromRgb((byte)(c.R + (255 - c.R) * t), (byte)(c.G + (255 - c.G) * t), (byte)(c.B + (255 - c.B) * t));
+    static Color Darken(Color c, double t) => Color.FromRgb((byte)(c.R * (1 - t)), (byte)(c.G * (1 - t)), (byte)(c.B * (1 - t)));
+    static Color WithAlpha(Color c, double a) => Color.FromArgb((byte)Math.Round(a * 255), c.R, c.G, c.B);
+
+    static T At<T>(T el, double x, double y, double w, double h) where T : FrameworkElement
+    {
+        el.Width = w; el.Height = h;
+        Canvas.SetLeft(el, x); Canvas.SetTop(el, y);
+        el.IsHitTestVisible = false;
+        return el;
+    }
+
     void BuildVisuals()
     {
-        foreach (var e in new Ellipse[] { _shadow, _glow, _body, _sheen, _rim, _ring1, _ring2 }) e.IsHitTestVisible = false;
-
-        _shadow.Fill = new RadialGradientBrush(Color.FromArgb(110, 0, 0, 0), Colors.Transparent) { Center = new Point(.5, .5), RadiusX = .5, RadiusY = .5 };
-        _shadow.RenderTransformOrigin = new Point(.5, .5);
-        _shadow.RenderTransform = new TransformGroup { Children = { new ScaleTransform(1.18, 1.18), new TranslateTransform(0, 5) } };
-
-        _glow.RenderTransformOrigin = new Point(.5, .5);
-        _glow.Opacity = .85;
-
+        // ground shadow, glow and pulse rings sit behind the sphere
+        _shadow.Fill = new RadialGradientBrush(Color.FromArgb(120, 0, 0, 0), Colors.Transparent) { Center = new Point(.5, .5), RadiusX = .5, RadiusY = .5 };
+        _shadow.RenderTransform = _shadowShift;
         _ring1.Fill = null; _ring2.Fill = null;
         _ring1.StrokeThickness = 2; _ring2.StrokeThickness = 2;
         _ring1.Opacity = 0; _ring2.Opacity = 0;
         _ring1.RenderTransformOrigin = new Point(.5, .5); _ring2.RenderTransformOrigin = new Point(.5, .5);
         _ring1.RenderTransform = _ringScale1; _ring2.RenderTransform = _ringScale2;
+        _glow.RenderTransformOrigin = new Point(.5, .5);
+        _glow.Opacity = .85;
+        foreach (var e in new[] { _shadow, _glow, _ring1, _ring2 }) e.IsHitTestVisible = false;
 
-        _sheen.Fill = new RadialGradientBrush(Color.FromArgb(120, 255, 255, 255), Color.FromArgb(0, 255, 255, 255))
-        { Center = new Point(.32, .22), GradientOrigin = new Point(.32, .22), RadiusX = .62, RadiusY = .5 };
-        _rim.Fill = null;
-        _rim.StrokeThickness = 1.25;
-        _rim.Stroke = new LinearGradientBrush(Color.FromArgb(150, 255, 255, 255), Color.FromArgb(10, 255, 255, 255), 90);
+        // ---- the sphere (design space 200 x 200, sphere radius 80) ----
+        var design = new Canvas { Width = 200, Height = 200, IsHitTestVisible = false };
+        design.Children.Add(At(_body, 20, 20, 160, 160));
+        design.Children.Add(At(_edge, 20, 20, 160, 160));
+        design.Children.Add(At(_refl, 46, 116, 108, 60));                       // light bouncing up from the bottom
+        _rim.Fill = null; _rim.StrokeThickness = 1.8;
+        design.Children.Add(At(_rim, 20.8, 20.8, 158.4, 158.4));                // fresnel rim
 
-        var bellCanvas = new Canvas { Width = 24, Height = 24 };
-        foreach (var d in new[] { "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9", "M10.3 21a1.94 1.94 0 0 0 3.4 0" })
+        var glossLayer = new Canvas { Width = 200, Height = 200, IsHitTestVisible = false, RenderTransform = _glossShift };
+        _gloss.Data = Geometry.Parse("M 100 20.5 C 66 20.5 40 40 33 66 C 54 52 78 49 100 49 C 122 49 146 52 167 66 C 160 40 134 20.5 100 20.5 Z");
+        _gloss.Fill = new LinearGradientBrush(new GradientStopCollection
         {
-            bellCanvas.Children.Add(new System.Windows.Shapes.Path
-            {
-                Data = Geometry.Parse(d),
-                Stroke = Brushes.White,
-                StrokeThickness = 2,
-                StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round,
-                StrokeLineJoin = PenLineJoin.Round,
-            });
-        }
-        bellCanvas.RenderTransformOrigin = new Point(.5, .1);
-        bellCanvas.RenderTransform = _bellRot;
-        _bell.Child = bellCanvas;
-        _bell.IsHitTestVisible = false;
-        _bell.HorizontalAlignment = HorizontalAlignment.Center;
-        _bell.VerticalAlignment = VerticalAlignment.Center;
+            new(Color.FromArgb(230, 255, 255, 255), 0), new(Color.FromArgb(56, 255, 255, 255), .55), new(Color.FromArgb(5, 255, 255, 255), 1),
+        }, new Point(0, 0), new Point(0, 1));
+        _gloss.IsHitTestVisible = false;
+        glossLayer.Children.Add(_gloss);
+        _spec.Fill = new SolidColorBrush(Color.FromArgb(217, 255, 255, 255));
+        glossLayer.Children.Add(At(_spec, 55, 43.8, 14, 8.4));
+        _spec.RenderTransformOrigin = new Point(.5, .5);
+        _spec.RenderTransform = new RotateTransform(-38);
+        design.Children.Add(glossLayer);
 
+        // the bell: soft stacked shadow, then the white enamel
+        var bellHolder = new Canvas { Width = 200, Height = 200, IsHitTestVisible = false, RenderTransform = _bellRot };
+        var bell = new Canvas { Width = 24, Height = 24, IsHitTestVisible = false, RenderTransform = new ScaleTransform(3.4, 3.4) };
+        Canvas.SetLeft(bell, 59.2); Canvas.SetTop(bell, 62.92);
+        const string dome = "M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9z";
+        const string clapper = "M10 18.5a2 2 0 0 0 4 0z";
+        foreach (var (dy, a) in new[] { (1.5, 22), (1.0, 30), (0.55, 42) })
+            foreach (var d in new[] { dome, clapper })
+                bell.Children.Add(new System.Windows.Shapes.Path { Data = Geometry.Parse(d), Fill = new SolidColorBrush(Color.FromArgb((byte)a, 26, 11, 77)), RenderTransform = new TranslateTransform(0, dy), IsHitTestVisible = false });
+        var enamel = new LinearGradientBrush(Colors.White, Color.FromRgb(233, 226, 255), 90);
+        foreach (var d in new[] { dome, clapper })
+            bell.Children.Add(new System.Windows.Shapes.Path { Data = Geometry.Parse(d), Fill = enamel, IsHitTestVisible = false });
+        bellHolder.Children.Add(bell);
+        design.Children.Add(bellHolder);
+
+        _sphereBox.Child = design;
+        _sphereBox.Stretch = Stretch.Uniform;
+        _sphereBox.IsHitTestVisible = false;
+
+        // ---- count badge ----
         _badgeText.Foreground = Brushes.White;
         _badgeText.FontSize = 11;
         _badgeText.FontWeight = FontWeights.Bold;
@@ -163,19 +203,39 @@ public sealed class BubbleWindow : Window
         _badge.Background = new LinearGradientBrush(Color.FromRgb(255, 93, 115), Color.FromRgb(244, 63, 130), 45);
         _badge.HorizontalAlignment = HorizontalAlignment.Right;
         _badge.VerticalAlignment = VerticalAlignment.Top;
-        _badge.Margin = new Thickness(0, -7, -7, 0);
         _badge.RenderTransformOrigin = new Point(.5, .5);
         _badge.RenderTransform = _badgeScale;
         _badge.Visibility = Visibility.Collapsed;
         _badge.IsHitTestVisible = false;
 
+        // ---- resize grip (appears on hover, bottom-right of the sphere) ----
+        var gripIcon = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M2 8 L8 2 M5 8 L8 5"),
+            Stroke = new SolidColorBrush(Color.FromRgb(70, 50, 140)), StrokeThickness = 1.6,
+            StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false,
+        };
+        _grip.Width = _grip.Height = 20;
+        _grip.CornerRadius = new CornerRadius(10);
+        _grip.Background = new RadialGradientBrush(Color.FromArgb(245, 255, 255, 255), Color.FromArgb(215, 220, 212, 255)) { GradientOrigin = new Point(.3, .25) };
+        _grip.BorderBrush = new SolidColorBrush(Color.FromArgb(200, 255, 255, 255));
+        _grip.BorderThickness = new Thickness(1.2);
+        _grip.Child = gripIcon;
+        _grip.HorizontalAlignment = HorizontalAlignment.Right;
+        _grip.VerticalAlignment = VerticalAlignment.Bottom;
+        _grip.Cursor = Cursors.SizeNWSE;
+        _grip.ToolTip = "Drag to resize  (or scroll over the bubble)";
+        _grip.Opacity = 0;
+        _grip.IsHitTestVisible = false;
+        _grip.RenderTransformOrigin = new Point(.5, .5);
+        _grip.RenderTransform = _gripScale;
+
         _circle.RenderTransformOrigin = new Point(.5, .5);
         _circle.RenderTransform = _scale;
-        _circle.Children.Add(_body);
-        _circle.Children.Add(_sheen);
-        _circle.Children.Add(_rim);
-        _circle.Children.Add(_bell);
+        _circle.Children.Add(_sphereBox);
         _circle.Children.Add(_badge);
+        _circle.Children.Add(_grip);
 
         _root.Children.Add(_shadow);
         _root.Children.Add(_glow);
@@ -194,42 +254,87 @@ public sealed class BubbleWindow : Window
         _ => (Color.FromRgb(124, 92, 255), Color.FromRgb(194, 92, 255)),
     };
 
-    public void ApplySettings(AppSettings s, bool initial = false)
+    /// <summary>Recolours the glass for an accent. The same recipe as docs/bubble.svg.</summary>
+    void ApplyColors(AppSettings s)
     {
-        _s = s;
-        var oldSize = _size;
-        _size = s.BubbleSize;
         var (a, b) = Palette(s.Accent);
+        Color hi = Lighten(b, .62), rimc = Lighten(b, .8), deep = Darken(a, .58);
 
-        _body.Fill = new LinearGradientBrush(a, b, 45);
-        _glow.Fill = new RadialGradientBrush(Color.FromArgb(150, a.R, a.G, a.B), Color.FromArgb(0, a.R, a.G, a.B))
+        _bodyBrush = new RadialGradientBrush { Center = new Point(.5, .5), GradientOrigin = new Point(.33 + _tiltX * .08, .24 + _tiltY * .08), RadiusX = .78, RadiusY = .78 };
+        _bodyBrush.GradientStops.Add(new GradientStop(WithAlpha(hi, .92), 0));
+        _bodyBrush.GradientStops.Add(new GradientStop(WithAlpha(b, .92), .26));
+        _bodyBrush.GradientStops.Add(new GradientStop(WithAlpha(a, .95), .62));
+        _bodyBrush.GradientStops.Add(new GradientStop(WithAlpha(deep, .98), 1));
+        _body.Fill = _bodyBrush;
+
+        _edge.Fill = new RadialGradientBrush(new GradientStopCollection
+        {
+            new(Color.FromArgb(0, 0, 0, 0), .78), new(Color.FromArgb(107, 5, 0, 26), 1),
+        }) { Center = new Point(.5, .5), RadiusX = .5, RadiusY = .5 };
+
+        _refl.Fill = new RadialGradientBrush(new GradientStopCollection
+        {
+            new(WithAlpha(rimc, .62), 0), new(WithAlpha(hi, .18), .6), new(WithAlpha(hi, 0), 1),
+        }) { Center = new Point(.5, .5), RadiusX = .5, RadiusY = .5 };
+
+        _rim.Stroke = new LinearGradientBrush(new GradientStopCollection
+        {
+            new(Color.FromArgb(242, 255, 255, 255), 0), new(Color.FromArgb(15, 255, 255, 255), .42),
+            new(Color.FromArgb(13, 255, 255, 255), .6), new(WithAlpha(rimc, .75), 1),
+        }, new Point(0, 0), new Point(1, 1));
+
+        _glow.Fill = new RadialGradientBrush(Color.FromArgb(105, b.R, b.G, b.B), Color.FromArgb(0, b.R, b.G, b.B))
         { Center = new Point(.5, .5), RadiusX = .5, RadiusY = .5 };
         _ring1.Stroke = new SolidColorBrush(a); _ring2.Stroke = new SolidColorBrush(b);
+    }
 
+    /// <summary>Applies <see cref="_size"/> to every element (pure layout - does not touch the window).</summary>
+    void ApplyLayout()
+    {
         var w = _size + 2 * Pad;
         _root.Width = _root.Height = w;
-        Width = Height = w;
         _circle.Width = _circle.Height = _size;
-        foreach (var e in new Ellipse[] { _body, _sheen, _rim, _ring1, _ring2, _shadow }) e.Width = e.Height = _size;
+        foreach (var e in new[] { _ring1, _ring2 }) e.Width = e.Height = _size;
+        _shadow.Width = _size * .95; _shadow.Height = _size * .17;
+        _shadowShift.Y = _size * .545;
         _glow.Width = _glow.Height = _size + Pad * 1.7;
-        _bell.Width = _bell.Height = _size * 0.46;
-        var ringTarget = (_size + Pad * 1.7) / _size;
-        _ringTarget = ringTarget;
+        _ringTarget = (_size + Pad * 1.7) / _size;
 
-        if (!initial && _hwnd != IntPtr.Zero)
-        {
-            // Keep the circle's centre in place while the size changes.
-            var d = (_size - oldSize) * Dpi / 2;
-            _circleX -= (int)Math.Round(d); _circleY -= (int)Math.Round(d);
-            if (!_dragging) SnapAndPlace(animated: false);
-        }
+        var k = Math.Clamp(_size / 64.0, .8, 1.3);                  // keep the badge in proportion
+        _badge.LayoutTransform = new ScaleTransform(k, k);
+        _badge.Margin = new Thickness(0, -7 * k, -7 * k, 0);
+        var m = _size * 0.146 - 10;                                  // centre the grip on the circle's 45 degree point
+        _grip.Margin = new Thickness(0, 0, m, m);
+    }
+
+    public void ApplySettings(AppSettings s, bool initial = false)
+    {
+        var oldSpx = SPx;
+        var oldSize = _size;
+        _s = s;
+        _size = Math.Clamp(s.BubbleSize, MinSize, MaxSize);
+        ApplyColors(s);
+        ApplyLayout();
+
+        if (initial) { Width = Height = _size + 2 * Pad; Opacity = _s.BubbleOpacity; return; }
+
+        if (_hwnd != IntPtr.Zero && Math.Abs(_size - oldSize) > .01) ResizeWindow(oldSpx);
         if (_s.SnapToEdge) { if (_dock == 0) _dock = 1; } else { _dock = 0; Reveal(); }
-        if (!initial) SetOpacityNow(_peeking ? _s.BubbleOpacity * 0.6 : _s.BubbleOpacity);
-        else Opacity = _s.BubbleOpacity;
+        if (_hwnd != IntPtr.Zero && !_dragging && !_resizing) SnapAndPlace(animated: false);
+        SetOpacityNow(_peeking ? _s.BubbleOpacity * 0.6 : _s.BubbleOpacity);
         RestartIdle();
     }
 
-    double _ringTarget = 1.9;
+    /// <summary>Resizes the native window to match <see cref="_size"/>, keeping the circle's centre where it was.</summary>
+    void ResizeWindow(int oldSpx)
+    {
+        var r = Native.GetRect(_hwnd);
+        double cx = (r.Left + r.Right) / 2.0, cy = (r.Top + r.Bottom) / 2.0;
+        var w = WinPx;
+        Native.SetWindowPos(_hwnd, IntPtr.Zero, (int)Math.Round(cx - w / 2.0), (int)Math.Round(cy - w / 2.0), w, w, Native.SWP_NOZORDER | Native.SWP_NOACTIVATE);
+        var d = (SPx - oldSpx) / 2;
+        _circleX -= d; _circleY -= d;
+    }
 
     // ======================================================================================
     // Context menu (styled at runtime so no XAML build step is required)
@@ -283,35 +388,37 @@ public sealed class BubbleWindow : Window
     void BuildMenu()
     {
         ContextMenu menu;
+        (string Header, string Action)[] items =
+        {
+            ("Open reminders", "open"), ("New reminder", "new"), ("-", ""),
+            ("Make bigger", "bigger"), ("Make smaller", "smaller"), ("Reset size", "reset"), ("-", ""),
+            ("Settings", "settings"), ("Hide bubble", "hide"), ("-", ""), ("Quit Reminder Bubble", "quit"),
+        };
         try
         {
             var dict = (ResourceDictionary)XamlReader.Parse(MenuXaml);
             Resources.MergedDictionaries.Add(dict);
             menu = new ContextMenu { Style = (Style)dict["RbMenu"] };
-            MenuItem Item(string header, string action)
+            foreach (var (header, action) in items)
             {
+                if (header == "-") { menu.Items.Add(new Separator { Style = (Style)dict["RbSep"] }); continue; }
                 var mi = new MenuItem { Header = header, Style = (Style)dict["RbItem"] };
-                mi.Click += (_, _) => MenuAction?.Invoke(action);
-                return mi;
+                var a = action;
+                mi.Click += (_, _) => OnMenu(a);
+                menu.Items.Add(mi);
             }
-            menu.Items.Add(Item("Open reminders", "open"));
-            menu.Items.Add(Item("New reminder", "new"));
-            menu.Items.Add(new Separator { Style = (Style)dict["RbSep"] });
-            menu.Items.Add(Item("Settings", "settings"));
-            menu.Items.Add(Item("Hide bubble", "hide"));
-            menu.Items.Add(new Separator { Style = (Style)dict["RbSep"] });
-            menu.Items.Add(Item("Quit Reminder Bubble", "quit"));
         }
         catch (Exception ex)
         {
             // Styling is cosmetic - fall back to the stock menu rather than failing to start.
             Log.Write("Menu style failed: " + ex.Message);
             menu = new ContextMenu();
-            foreach (var (h, a) in new[] { ("Open reminders", "open"), ("New reminder", "new"), ("Settings", "settings"), ("Hide bubble", "hide"), ("Quit Reminder Bubble", "quit") })
+            foreach (var (header, action) in items)
             {
-                var mi = new MenuItem { Header = h };
-                var action = a;
-                mi.Click += (_, _) => MenuAction?.Invoke(action);
+                if (header == "-") { menu.Items.Add(new Separator()); continue; }
+                var mi = new MenuItem { Header = header };
+                var a = action;
+                mi.Click += (_, _) => OnMenu(a);
                 menu.Items.Add(mi);
             }
         }
@@ -320,22 +427,37 @@ public sealed class BubbleWindow : Window
         _root.ContextMenu = menu;
     }
 
+    void OnMenu(string action)
+    {
+        switch (action)
+        {
+            case "bigger": ChangeSize(_size + 8, commitNow: true); break;
+            case "smaller": ChangeSize(_size - 8, commitNow: true); break;
+            case "reset": ChangeSize(64, commitNow: true); break;
+            default: MenuAction?.Invoke(action); break;
+        }
+    }
+
     // ======================================================================================
-    // Input: hover, press, click vs. drag
+    // Input: hover (with a pointer-following highlight), press, click vs. drag, resize
     // ======================================================================================
     void WireInput()
     {
         _root.MouseEnter += (_, _) =>
         {
             _hover = true; _idle.Stop(); Reveal();
-            if (!_pressed) ScaleTo(1.08, 220);
+            if (!_pressed) ScaleTo(1.06, 220);
             GlowTo(1.0, 220);
+            ShowGrip(true);
         };
         _root.MouseLeave += (_, _) =>
         {
+            if (_resizing) return;
             _hover = false;
             if (!_pressed) ScaleTo(1.0, 280);
             GlowTo(.85, 280);
+            ShowGrip(false);
+            TiltTo(0, 0);
             RestartIdle();
         };
         _root.MouseLeftButtonDown += (_, e) =>
@@ -346,12 +468,16 @@ public sealed class BubbleWindow : Window
             var r = Native.GetRect(_hwnd);
             _pressWindow = new Drawing.Point(r.Left, r.Top);
             _root.CaptureMouse();
-            ScaleTo(0.93, 90);
+            ScaleTo(0.94, 90);
             e.Handled = true;
         };
-        _root.MouseMove += (_, _) =>
+        _root.MouseMove += (_, e) =>
         {
-            if (!_pressed) return;
+            if (!_pressed)
+            {
+                if (!_resizing) FollowPointer(e.GetPosition(_circle));
+                return;
+            }
             Native.GetCursorPos(out var c);
             int dx = c.X - _pressCursor.X, dy = c.Y - _pressCursor.Y;
             if (!_dragging && Math.Abs(dx) + Math.Abs(dy) > 5)
@@ -360,8 +486,9 @@ public sealed class BubbleWindow : Window
                 _moveTween?.Stop();
                 _peeking = false;
                 SetOpacityNow(_s.BubbleOpacity);
+                ShowGrip(false);
             }
-            if (_dragging) Native.Move(_hwnd, _pressWindow.X + dx, _pressWindow.Y + dy);
+            if (_dragging) Native.Move(_hwnd, _pressWindow.X + dx, _pressWindow.Y + dy);   // anywhere, on any monitor
         };
         _root.MouseLeftButtonUp += (_, e) =>
         {
@@ -371,19 +498,119 @@ public sealed class BubbleWindow : Window
             if (_dragging)
             {
                 _dragging = false;
-                ScaleTo(_hover ? 1.08 : 1.0, 260);
+                ScaleTo(_hover ? 1.06 : 1.0, 260);
                 var r = Native.GetRect(_hwnd);
                 _circleX = r.Left + PadPx; _circleY = r.Top + PadPx;
-                SnapAndPlace(animated: true);
+                SnapAndPlace(animated: true);          // free mode: just keeps it on a screen; snap mode: glides to the edge
+                if (_hover) ShowGrip(true);
             }
             else
             {
-                ScaleTo(1.08, 140);
+                ScaleTo(1.06, 140);
                 Clicked?.Invoke();
             }
             e.Handled = true;
         };
         _root.MouseRightButtonDown += (_, _) => Activate();
+
+        // scroll over the bubble to resize it
+        _root.MouseWheel += (_, e) =>
+        {
+            if (_peeking || _dragging) return;
+            ChangeSize(_size + Math.Sign(e.Delta) * 4, commitNow: false);
+            e.Handled = true;
+        };
+
+        // drag the grip to resize
+        _grip.MouseLeftButtonDown += (_, e) =>
+        {
+            _resizing = true;
+            _grip.CaptureMouse();
+            _idle.Stop();
+            e.Handled = true;
+        };
+        _grip.MouseMove += (_, e) =>
+        {
+            if (!_resizing) return;
+            Native.GetCursorPos(out var c);
+            var r = Native.GetRect(_hwnd);
+            double dx = c.X - (r.Left + r.Right) / 2.0, dy = c.Y - (r.Top + r.Bottom) / 2.0;
+            // The grip sits on the circle's edge, so its distance from the centre is the radius.
+            ChangeSize(Math.Round(2 * Math.Sqrt(dx * dx + dy * dy) / Dpi / 2) * 2, commitNow: false);
+            e.Handled = true;
+        };
+        _grip.MouseLeftButtonUp += (_, e) =>
+        {
+            if (!_resizing) return;
+            _resizing = false;
+            _grip.ReleaseMouseCapture();
+            CommitSize();
+            if (!_root.IsMouseOver) { _hover = false; ScaleTo(1.0, 280); GlowTo(.85, 280); ShowGrip(false); RestartIdle(); }
+            e.Handled = true;
+        };
+    }
+
+    // ---- resizing ---------------------------------------------------------------------------
+    void ChangeSize(double size, bool commitNow)
+    {
+        size = Math.Clamp(Math.Round(size), MinSize, MaxSize);
+        if (Math.Abs(size - _size) < .5 || _hwnd == IntPtr.Zero) return;
+        var oldSpx = SPx;
+        _size = size;
+        ApplyLayout();
+        ResizeWindow(oldSpx);
+        ClampNow();
+        if (commitNow) CommitSize(); else { _commit.Stop(); _commit.Start(); }   // persist once the gesture settles
+    }
+
+    void CommitSize()
+    {
+        _commit.Stop();
+        SavePosition();
+        SizeCommitted?.Invoke((int)_size);
+    }
+
+    /// <summary>Keeps the circle on screen after a resize, without animation or saving.</summary>
+    void ClampNow()
+    {
+        var (x, y) = RestWindowPos(_dock, Area());
+        _circleX = x + PadPx; _circleY = y + PadPx;
+        if (!_peeking) Native.Move(_hwnd, x, y);
+    }
+
+    // ---- pointer-following highlight: the glass catches the "light" from where the mouse is ------
+    void FollowPointer(Point p)
+    {
+        if (_size <= 0) return;
+        _tiltTween?.Stop();
+        var nx = Math.Clamp((p.X / _size - .5) * 2, -1, 1);
+        var ny = Math.Clamp((p.Y / _size - .5) * 2, -1, 1);
+        SetTilt(nx, ny);
+    }
+
+    void SetTilt(double nx, double ny)
+    {
+        _tiltX = nx; _tiltY = ny;
+        _glossShift.X = nx * 5; _glossShift.Y = ny * 4;
+        _bodyBrush.GradientOrigin = new Point(.33 + nx * .08, .24 + ny * .08);
+    }
+
+    void TiltTo(double nx, double ny)
+    {
+        _tiltTween?.Stop();
+        double x0 = _tiltX, y0 = _tiltY;
+        _tiltTween = Tween.Run(320, Ease.OutCubic, t => SetTilt(Tween.Lerp(x0, nx, t), Tween.Lerp(y0, ny, t)));
+    }
+
+    void ShowGrip(bool show)
+    {
+        _grip.IsHitTestVisible = show;
+        var dur = TimeSpan.FromMilliseconds(show ? 200 : 140);
+        var fade = new DoubleAnimation(show ? 1 : 0, dur) { EasingFunction = EaseOut };
+        var grow = new DoubleAnimation(show ? 1 : .6, dur) { EasingFunction = show ? new BackEase { EasingMode = EasingMode.EaseOut, Amplitude = .8 } : EaseOut };
+        _grip.BeginAnimation(OpacityProperty, fade);
+        _gripScale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+        _gripScale.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
     }
 
     // ======================================================================================
@@ -402,15 +629,17 @@ public sealed class BubbleWindow : Window
         _glow.BeginAnimation(OpacityProperty, new DoubleAnimation(v, TimeSpan.FromMilliseconds(ms)) { EasingFunction = EaseOut });
 
     // ======================================================================================
-    // Placement: edge snapping, docking, restoring the saved position
+    // Placement: free anywhere (default), or glued to a screen edge
     // ======================================================================================
-    Drawing.Rectangle WorkArea()
+    /// <summary>The area the circle may occupy: the whole monitor when floating free, the work area (above the taskbar) when snapping.</summary>
+    Drawing.Rectangle Area()
     {
         var r = Native.GetRect(_hwnd);
-        return Forms.Screen.FromRectangle(new Drawing.Rectangle(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top)).WorkingArea;
+        var screen = Forms.Screen.FromRectangle(new Drawing.Rectangle(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top));
+        return _s.SnapToEdge ? screen.WorkingArea : screen.Bounds;
     }
 
-    int Gap => (int)Math.Round(10 * Dpi);
+    int Gap => _s.SnapToEdge ? (int)Math.Round(10 * Dpi) : 0;
 
     (int x, int y) RestWindowPos(int side, Drawing.Rectangle w)
     {
@@ -432,15 +661,18 @@ public sealed class BubbleWindow : Window
         return (x - PadPx, rest.y);
     }
 
-    /// <summary>Computes the resting spot from where the circle was dropped (glued to the nearest side edge) and moves there.</summary>
+    /// <summary>
+    /// Moves the circle to its resting place for the current mode: floating free it only has to stay on a screen;
+    /// snapping, it is glued to the nearest side edge.
+    /// </summary>
     void SnapAndPlace(bool animated)
     {
-        var w = WorkArea();
+        var w = Area();
         if (_s.SnapToEdge) _dock = (_circleX + SPx / 2) < (w.Left + w.Width / 2) ? -1 : 1; else _dock = 0;
         var (x, y) = RestWindowPos(_dock, w);
         _circleX = x + PadPx; _circleY = y + PadPx;
         _peeking = false;
-        MoveWindowTo(x, y, animated ? 460 : 0, animated ? Ease.OutBack : Ease.Linear, SavePosition);
+        MoveWindowTo(x, y, animated ? (_s.SnapToEdge ? 460 : 260) : 0, _s.SnapToEdge ? Ease.OutBack : Ease.OutCubic, SavePosition);
     }
 
     void MoveWindowTo(int x, int y, double ms, Func<double, double> ease, Action? done = null)
@@ -456,9 +688,8 @@ public sealed class BubbleWindow : Window
     }
 
     void SavePosition() => PositionChanged?.Invoke(_circleX, _circleY);
-    public event Action<double, double>? PositionChanged;
 
-    /// <summary>Called once at start-up: restores the saved position (or picks the right edge) and plays the intro.</summary>
+    /// <summary>Called once at start-up: restores the saved position (or the right side) and plays the intro.</summary>
     public void ShowAtStartup(double? savedX, double? savedY)
     {
         Left = -10000; Top = -10000;     // placed for real below, once the HWND exists
@@ -468,8 +699,8 @@ public sealed class BubbleWindow : Window
         if (savedX is { } sx && savedY is { } sy && IsOnAnyScreen((int)sx, (int)sy))
         { _circleX = (int)sx; _circleY = (int)sy; }
         else
-        { _circleX = w.Right - Gap - SPx; _circleY = w.Top + (int)(w.Height * 0.38); }
-        // Put the window on the right monitor first so the work area used for snapping is the right one.
+        { _circleX = w.Right - Gap - SPx - (int)(24 * Dpi); _circleY = w.Top + (int)(w.Height * 0.38); }
+        // Put the window on the right monitor first so the area used for clamping is the right one.
         Native.Move(_hwnd, _circleX - PadPx, _circleY - PadPx);
         SnapAndPlace(animated: false);
 
@@ -485,29 +716,29 @@ public sealed class BubbleWindow : Window
     }
 
     static bool IsOnAnyScreen(int x, int y) =>
-        Forms.Screen.AllScreens.Any(s => s.WorkingArea.Contains(x + 8, y + 8));
+        Forms.Screen.AllScreens.Any(s => s.Bounds.Contains(x + 8, y + 8));
 
     /// <summary>Re-clamps the bubble after monitor / resolution / taskbar changes.</summary>
     public void EnsureOnScreen()
     {
-        if (!_shown || _hwnd == IntPtr.Zero || _dragging) return;
+        if (!_shown || _hwnd == IntPtr.Zero || _dragging || _resizing) return;
         SnapAndPlace(animated: false);
         RestartIdle();
     }
 
     // ======================================================================================
-    // Docking ("peek") behaviour
+    // Docking ("peek") behaviour - only when snapping to an edge
     // ======================================================================================
     void RestartIdle()
     {
         _idle.Stop();
-        if (_s.SnapToEdge && _s.AutoHide && !_hover && !_alerting && !_panelOpen && !_dragging && _dock != 0 && _shown) _idle.Start();
+        if (_s.SnapToEdge && _s.AutoHide && !_hover && !_alerting && !_panelOpen && !_dragging && !_resizing && _dock != 0 && _shown) _idle.Start();
     }
 
     void DockAway()
     {
-        if (!_s.SnapToEdge || !_s.AutoHide || _hover || _alerting || _panelOpen || _dragging || _dock == 0 || _peeking) return;
-        var w = WorkArea();
+        if (!_s.SnapToEdge || !_s.AutoHide || _hover || _alerting || _panelOpen || _dragging || _resizing || _dock == 0 || _peeking) return;
+        var w = Area();
         var (x, y) = PeekWindowPos(_dock, w);
         _peeking = true;
         MoveWindowTo(x, y, 420, Ease.InOutCubic);
@@ -519,7 +750,7 @@ public sealed class BubbleWindow : Window
     {
         if (!_peeking || _hwnd == IntPtr.Zero) return;
         _peeking = false;
-        var (x, y) = RestWindowPos(_dock, WorkArea());
+        var (x, y) = RestWindowPos(_dock, Area());
         MoveWindowTo(x, y, 380, Ease.OutBack);
         BeginAnimation(OpacityProperty, new DoubleAnimation(_s.BubbleOpacity, TimeSpan.FromMilliseconds(220)));
     }
@@ -615,7 +846,7 @@ public sealed class BubbleWindow : Window
     {
         var a = new DoubleAnimationUsingKeyFrames();
         a.KeyFrames.Add(new EasingDoubleKeyFrame(1.16, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(130)), EaseOut));
-        a.KeyFrames.Add(new EasingDoubleKeyFrame(_hover ? 1.08 : 1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(480)), new ElasticEase { EasingMode = EasingMode.EaseOut, Oscillations = 2, Springiness = 5 }));
+        a.KeyFrames.Add(new EasingDoubleKeyFrame(_hover ? 1.06 : 1.0, KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(480)), new ElasticEase { EasingMode = EasingMode.EaseOut, Oscillations = 2, Springiness = 5 }));
         _scale.BeginAnimation(ScaleTransform.ScaleXProperty, a);
         _scale.BeginAnimation(ScaleTransform.ScaleYProperty, a);
     }
@@ -640,6 +871,6 @@ public sealed class BubbleWindow : Window
 
     public void Shutdown()
     {
-        _topmost.Stop(); _idle.Stop(); _moveTween?.Stop();
+        _topmost.Stop(); _idle.Stop(); _commit.Stop(); _moveTween?.Stop(); _tiltTween?.Stop();
     }
 }

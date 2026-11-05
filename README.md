@@ -7,13 +7,18 @@ Native <b>.NET 8</b> shell · <b>HTML / CSS / JS</b> interface · <b>SQLite</b> 
 
 <p align="center"><img src="docs/preview.jpg" alt="Reminder Bubble interface"></p>
 
+<p align="center"><img src="docs/bubbles.jpg" alt="The glass bubble in every accent colour" width="780"></p>
+
 ## What it does
 
 A small glowing bubble floats above all your windows. It tucks itself against the screen edge, pulses and rings when a
 reminder is due, and opens a polished panel when you click it.
 
-* **Always on top** – a draggable, round, translucent bubble that is never hidden behind other apps. Drop it anywhere and it
-  springs to the nearest screen edge, then slides half off-screen when idle and back out when you hover it.
+* **A 3D glass bubble, always on top** – a glossy glass sphere (it recolours with your accent) that is never hidden behind
+  other apps. The highlight follows your pointer, and it springs when you press it.
+* **Place it anywhere, any size** – drag it to any spot on any monitor and it stays exactly there. **Scroll over it** or drag
+  the **grip** that appears on its corner to resize (40–160 px); right-click offers *Make bigger / smaller / Reset size*.
+  Prefer an edge? Turn on *Snap to screen edge* (and *Tuck away when idle*) in Settings.
 * **Due alerts** – the bell swings, pulse rings ripple, a badge counts what is due, a soft synthesised chime plays and a card
   slides out of the bubble with **Done** and **Snooze** (10 min by default, or pick 30 min / 1 h / tomorrow …).
 * **Quick add in plain English** – type `call mom tomorrow 5pm`, `stand-up every weekday 9am`, `in 20 min stretch`,
@@ -33,7 +38,7 @@ Everything is stored locally in `%LOCALAPPDATA%\ReminderBubble\reminders.db`. No
 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) – already part of Windows 11 and current
 Windows 10, and the installer downloads it for you if it is missing.
 
-1. Run **`releases/ReminderBubble-Setup-1.0.0.exe`** (also attached to every [release](../../releases) and to each
+1. Run **`releases/ReminderBubble-Setup-1.1.0.exe`** (also attached to every [release](../../releases) and to each
    [Actions](../../actions) build).
 2. Next → Next → Install. No administrator rights are needed: it installs for your user into
    `%LOCALAPPDATA%\Programs\Reminder Bubble` (choose *all users* on the first page if you prefer Program Files).
@@ -47,7 +52,8 @@ unzip and start `ReminderBubble.exe`, keeping the `wwwroot` folder next to it.
 
 ## Using it
 
-* Click the bubble – open / close the panel · drag it – move it · right-click – menu
+* Click the bubble – open / close the panel · drag it – move it anywhere · scroll or drag its corner grip – resize ·
+  right-click – menu
 * Tray icon: click to open, right-click for the menu (hide bubble, settings, quit)
 * In the panel: `N` new reminder, `/` search, `1`–`4` switch view, `Esc` close
 
@@ -72,12 +78,13 @@ tools (F12 / right-click → Inspect).
 ```
 src/ReminderBubble/
   Program.cs, App.cs            start-up, single instance, scheduler tick, window placement
-  Windows/BubbleWindow.cs       the floating bubble: transparent WPF window, drag, edge snap, peek, pulse, badge
+  Windows/BubbleWindow.cs       the floating glass bubble: transparent WPF window, drag anywhere, resize, optional edge snap, pulse, badge
   Windows/WebHostWindow.cs      borderless WebView2 window used for the panel and the alert popup
   Windows/TrayIcon.cs           notification-area icon + dark menu
   Services/                     ReminderService (CRUD + scheduler), Recurrence, SettingsService, WebBridge, Chime ...
   Data/Database.cs              SQLite schema + helpers (Microsoft.Data.Sqlite)
   wwwroot/                      the UI: index.html (panel), alert.html, css/, js/
+docs/bubble.svg, tools/bubble_svg.py   the glass-sphere design (source of the icon and installer art)
 installer/                    Inno Setup script + wizard artwork
 releases/                     the built installer, for convenience
 tests/ReminderBubble.Tests      xUnit: database, scheduler, recurrence, settings (runs on any OS)

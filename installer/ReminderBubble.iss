@@ -13,7 +13,7 @@
 #define AppPublisher "Reminder Bubble"
 #define AppUrl       "https://github.com/panther2504/ReminderBubble"
 #ifndef AppVersion
-  #define AppVersion "1.1.3"
+  #define AppVersion "1.2.0"
 #endif
 #ifndef SourceDir
   #define SourceDir  "..\publish\win-x64"

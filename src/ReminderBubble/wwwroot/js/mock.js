@@ -5,7 +5,7 @@
   if (window.chrome && window.chrome.webview) return;       // real host present - not needed
 
   const K = 'rb.mock.reminders', KS = 'rb.mock.settings', KN = 'rb.mock.next';
-  const DEFAULTS = { theme: 'dark', accent: 'violet', bubbleSize: 64, bubbleOpacity: 1, snapToEdge: false, autoHide: false, sound: true, startWithWindows: false, clock24: false, defaultSnooze: 10, welcomed: true };
+  const DEFAULTS = { theme: 'dark', accent: 'violet', bubbleSize: 64, bubbleOpacity: 1, snapToEdge: false, autoHide: false, autoUpdate: true, sound: true, startWithWindows: false, clock24: false, defaultSnooze: 10, welcomed: true };
   const iso = (d) => new Date(d).toISOString();
   const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode */ } };
@@ -13,6 +13,7 @@
   let items = load(K, null);
   let settings = Object.assign({}, DEFAULTS, load(KS, {}));
   let nextId = load(KN, 1);
+  let update = { state: /update=ready/.test(location.search) ? 'ready' : 'idle', current: 'preview', latest: /update=ready/.test(location.search) ? '9.9.9' : null, error: null, lastChecked: null };
 
   function seed() {
     const now = new Date();
@@ -82,6 +83,10 @@
     'reminders.snooze': (a) => { const r = find(a.id); if (!r) return null; r.dueAt = iso(Date.now() + a.minutes * 60e3); r.notified = false; r.isDone = false; changed(); return r; },
     'reminders.restore': (a) => { items = items.filter((r) => r.id !== a.id); items.push(a); changed(); return a; },
     'reminders.clearDone': () => { items = items.filter((r) => !r.isDone); changed(); return null; },
+    'update.status': () => update,
+    'update.check': () => { update = Object.assign({}, update, { state: 'checking' }); window.Bridge._emit('update', update);
+      setTimeout(() => { update = Object.assign({}, update, { state: /update=ready/.test(location.search) ? 'ready' : 'uptodate', latest: '9.9.9', lastChecked: new Date().toISOString() }); window.Bridge._emit('update', update); }, 900); return update; },
+    'update.install': () => null,
     'settings.get': () => settings,
     'settings.patch': (a) => { settings = Object.assign({}, settings, a); save(KS, settings); window.Bridge._emit('settings', settings); return settings; },
   };

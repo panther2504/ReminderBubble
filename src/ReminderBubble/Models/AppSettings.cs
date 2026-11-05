@@ -16,6 +16,8 @@ public sealed class AppSettings
     public bool Sound { get; set; } = true;
     public bool StartWithWindows { get; set; }
     public bool Clock24 { get; set; }
+    /// <summary>Check GitHub for new versions in the background and download them (installing always waits for a click).</summary>
+    public bool AutoUpdate { get; set; } = true;
     public int DefaultSnooze { get; set; } = 10;
     public bool Welcomed { get; set; }
 

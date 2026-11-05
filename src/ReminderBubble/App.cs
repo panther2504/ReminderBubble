@@ -21,6 +21,7 @@ public sealed class App : Application
 
     public Database Db { get; private set; } = null!;
     public ReminderService Reminders { get; private set; } = null!;
+    public UpdateService Updates { get; private set; } = null!;
     public SettingsService Settings { get; private set; } = null!;
     public BubbleWindow Bubble { get; private set; } = null!;
     public WebHostWindow Panel { get; private set; } = null!;
@@ -45,6 +46,7 @@ public sealed class App : Application
             Db = new Database(Path.Combine(dataDir, "reminders.db"));
             Settings = new SettingsService(Db);
             Reminders = new ReminderService(Db);
+            Updates = new UpdateService(Settings);
             // The Run key is the source of truth for "start with Windows": the installer may have set it (or the user
             // removed it), so mirror it into the setting instead of overwriting it.
             var autostart = StartupService.IsEnabled();
@@ -82,6 +84,8 @@ public sealed class App : Application
             await Panel.WarmAsync();
             await Alert.WarmAsync();
 
+            Updates.Changed += s => Panel.Post(new { ev = "update", data = s });
+            StartUpdateChecks();
             Reminders.Changed += OnRemindersChanged;
             Reminders.Due += OnDue;
             Settings.Changed += OnSettingsChanged;
@@ -120,6 +124,18 @@ public sealed class App : Application
                 try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://go.microsoft.com/fwlink/p/?LinkId=2124703") { UseShellExecute = true }); } catch { /* ignore */ }
             return null;
         }
+    }
+
+    /// <summary>First check shortly after start-up, then every few hours, while "automatic updates" is on.</summary>
+    void StartUpdateChecks()
+    {
+        void Check() { if (Settings.Current.AutoUpdate) _ = Updates.CheckAsync(manual: false); }
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromHours(6) };
+        timer.Tick += (_, _) => Check();
+        timer.Start();
+        var first = new DispatcherTimer { Interval = TimeSpan.FromSeconds(45) };
+        first.Tick += (_, _) => { first.Stop(); Check(); };
+        first.Start();
     }
 
     void SeedWelcome()

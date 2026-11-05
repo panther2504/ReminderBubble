@@ -70,6 +70,11 @@ public sealed class WebBridge
             case "settings.get": return _app.Settings.Current;
             case "settings.patch": return _app.Settings.Patch(a);
 
+            // ---- updates ----
+            case "update.status": return _app.Updates.Snapshot;
+            case "update.check": _ = _app.Updates.CheckAsync(manual: true); return _app.Updates.Snapshot;
+            case "update.install": _app.Dispatcher.BeginInvoke(() => { if (_app.Updates.Install()) _app.Quit(); }); return null;
+
             // ---- windows ----
             case "window.drag": host.BeginDrag(); return null;
             case "panel.close": _app.Panel.HideAnimated(); return null;

@@ -25,6 +25,7 @@
     completing: new Set(),
     pinned: false,
     flashId: null,
+    update: { state: 'idle', current: '', latest: null, error: null, lastChecked: null },
   };
 
   const el = {
@@ -640,6 +641,10 @@
       `<div class="srow col"><div class="lbl"><b>Default snooze</b><small>Used by the Snooze button on alerts</small></div><div class="wrap" id="stSnooze">${[5, 10, 15, 30, 60].map((m) => `<button type="button" class="chipbtn" data-v="${m}">${m === 60 ? '1 hour' : m + ' min'}</button>`).join('')}</div></div>` +
       `</div>` +
       `<div class="group">` +
+      toggleRow('autoUpdate', 'Update automatically', 'Checks for new versions in the background and downloads them') +
+      `<div class="srow"><div class="lbl"><b id="upVer">Version</b><small id="upStatus"></small></div><button type="button" class="btn" id="upCheck"></button></div>` +
+      `</div>` +
+      `<div class="group">` +
       `<div class="srow"><div class="lbl"><b>Try it out</b><small>Sends a reminder that is due right now</small></div><button type="button" class="btn" id="stTest">${icon('zap')}Send test</button></div>` +
       `<div class="srow"><div class="lbl"><b>Quit Reminder Bubble</b><small>No reminders until you start it again</small></div><button type="button" class="btn danger" id="stQuit">Quit</button></div>` +
       `</div>` +
@@ -695,6 +700,7 @@
       const ac = t.closest('#stAccent .sw'); if (ac) return patch({ accent: ac.dataset.v });
       const sn = t.closest('#stSnooze .chipbtn'); if (sn) return patch({ defaultSnooze: Number(sn.dataset.v) });
       if (t.closest('#stTest')) return void sendTest();
+      if (t.closest('#upCheck')) return void updateAction();
       if (t.closest('#stQuit')) {
         const q = $('#stQuit');
         if (q._armed) return Bridge.send('app.quit');
@@ -716,6 +722,47 @@
 
   function openSettings() { closePopover(true); syncSettings(); showSheet(el.settings); requestAnimationFrame(() => placePill($('#stTheme'))); }
   $('#btnSettings').addEventListener('click', openSettings);
+
+  // ======================================================================================
+  // Updates
+  // ======================================================================================
+  const upLabel = (u) => ({
+    idle: 'Not checked yet', checking: 'Checking for updates…', uptodate: "You're up to date",
+    available: `Version ${u.latest} is available`, downloading: `Downloading version ${u.latest}…`,
+    ready: `Version ${u.latest} is ready to install`, error: u.error || 'Could not check for updates',
+  }[u.state] || '');
+
+  function updateAction() {
+    const u = state.update;
+    if (u.state === 'ready') Bridge.send('update.install');
+    else if (u.state !== 'checking' && u.state !== 'downloading') Bridge.call('update.check').then(setUpdate).catch(() => {});
+  }
+
+  function setUpdate(u) { state.update = u || state.update; renderUpdate(); }
+
+  function renderUpdate() {
+    const u = state.update, bar = $('#upbar');
+    // banner: only when there is something to act on
+    const show = u.state === 'ready' || u.state === 'available' || u.state === 'downloading';
+    bar.classList.toggle('show', show);
+    bar.classList.toggle('busy', u.state === 'downloading');
+    if (show) {
+      $('#upIcon').innerHTML = icon(u.state === 'downloading' ? 'repeat' : 'rocket');
+      $('#upTitle').textContent = u.state === 'ready' ? `Update ${u.latest} is ready` : u.state === 'available' ? `Update ${u.latest} available` : `Downloading ${u.latest}…`;
+      $('#upSub').textContent = u.state === 'ready' ? 'Restarts in a moment' : u.state === 'available' ? 'Download and install it now' : 'This only takes a moment';
+      const b = $('#upBtn'); b.textContent = u.state === 'ready' ? 'Restart & update' : 'Download';
+    }
+    // settings rows
+    const ver = $('#upVer'), st = $('#upStatus'), btn = $('#upCheck');
+    if (!ver) return;
+    ver.textContent = `Version ${u.current || state.info.version || ''}`;
+    st.textContent = upLabel(u) + (u.state === 'uptodate' && u.lastChecked ? ` · checked ${Core.fmtTime(new Date(u.lastChecked))}` : '');
+    st.classList.toggle('err', u.state === 'error');
+    btn.disabled = u.state === 'checking' || u.state === 'downloading';
+    btn.textContent = u.state === 'ready' ? 'Restart & update' : u.state === 'checking' ? 'Checking…' : u.state === 'downloading' ? 'Downloading…' : u.state === 'available' ? 'Download' : 'Check now';
+    btn.classList.toggle('primary', u.state === 'ready' || u.state === 'available');
+  }
+  $('#upBtn').addEventListener('click', updateAction);
 
   // ======================================================================================
   // Window chrome
@@ -777,6 +824,7 @@
       case 'settings':
         if (Date.now() - lastPatch > 700) { state.settings = data; Core.applySettings(data); syncSettings(); render(); }
         break;
+      case 'update': setUpdate(data); break;
       case 'shown': onShown(); break;
       case 'hidden': onHidden(); break;
       case 'open':
@@ -799,6 +847,7 @@
     Core.applySettings(state.settings);
     syncSettings();
     updatePreview();
+    Bridge.call('update.status').then(setUpdate).catch(() => {});
     await refresh();
     replay();
     setInterval(() => { if (!document.hidden && !document.documentElement.classList.contains('paused')) render(); }, 15000);

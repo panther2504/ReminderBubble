@@ -19,6 +19,7 @@
     <Compile Include="..\..\src\ReminderBubble\Services\ReminderService.cs" Link="Linked\Services\ReminderService.cs" />
     <Compile Include="..\..\src\ReminderBubble\Services\Recurrence.cs" Link="Linked\Services\Recurrence.cs" />
     <Compile Include="..\..\src\ReminderBubble\Services\SettingsService.cs" Link="Linked\Services\SettingsService.cs" />
+    <Compile Include="..\..\src\ReminderBubble\Services\UpdateChecker.cs" Link="Linked\Services\UpdateChecker.cs" />
   </ItemGroup>
 
   <ItemGroup>

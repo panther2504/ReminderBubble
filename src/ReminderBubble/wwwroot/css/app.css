@@ -284,3 +284,18 @@ html.preview .app { width: 408px; height: 660px; border-radius: 22px; box-shadow
 .enter-all .hdr { animation: rise .65s var(--ease) both; }
 .enter-all .tabs { animation: rise .65s .06s var(--ease) both; }
 .enter-all .composer { animation: rise .75s .14s var(--ease) both; }
+
+/* ---- update banner ------------------------------------------------------------------------- */
+.upbar { position: relative; z-index: 3; margin: 0 16px; display: grid; grid-template-rows: 0fr; transition: grid-template-rows .55s var(--ease), margin-top .55s var(--ease); }
+.upbar.show { grid-template-rows: 1fr; margin-top: 10px; }
+.upbar .inner { overflow: hidden; min-height: 0; }
+.upin { display: flex; align-items: center; gap: 12px; padding: 10px 10px 10px 12px; border-radius: 16px; border: 1px solid var(--accent-line); background: linear-gradient(135deg, color-mix(in srgb, var(--a1) 22%, var(--card)), var(--card) 80%); box-shadow: 0 12px 28px -16px color-mix(in srgb, var(--a1) 80%, transparent); }
+.upic { flex: none; width: 34px; height: 34px; border-radius: 12px; display: grid; place-items: center; color: #fff; background: var(--grad); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35); }
+.upic svg.i { width: 18px; height: 18px; }
+.upbar.busy .upic svg.i { animation: spin 1.4s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.uptx { flex: 1; min-width: 0; }
+.uptx b { display: block; font-size: 13.5px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.uptx small { display: block; margin-top: 1px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.upbar.busy .btn { display: none; }
+.srow .lbl small.err { color: var(--danger); }

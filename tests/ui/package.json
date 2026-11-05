@@ -3,7 +3,7 @@
   "private": true,
   "description": "Tests for the HTML/CSS/JS interface. They run in a normal browser against the mock backend (wwwroot/js/mock.js).",
   "scripts": {
-    "test": "node parse.test.js && node flow.test.js && node time.test.js"
+    "test": "node parse.test.js && node flow.test.js && node time.test.js && node update.test.js"
   },
   "devDependencies": {
     "playwright": "^1.48.0"

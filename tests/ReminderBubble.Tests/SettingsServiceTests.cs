@@ -22,6 +22,7 @@ public sealed class SettingsServiceTests : IDisposable
         Assert.False(s.Current.SnapToEdge);                        // the bubble stays wherever it is dropped
         Assert.False(s.Current.AutoHide);
         Assert.Equal(10, s.Current.DefaultSnooze);
+        Assert.True(s.Current.AutoUpdate);                         // updates are checked in the background by default
     }
 
     [Fact]

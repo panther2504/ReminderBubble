@@ -1,0 +1,40 @@
+name: build
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Unit + UI tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: 8.0.x }
+      - run: dotnet test tests/ReminderBubble.Tests/ReminderBubble.Tests.csproj --nologo
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: UI tests (quick-add parser + browser flows against the mock backend)
+        working-directory: tests/ui
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npm test
+
+  windows:
+    name: Windows build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: 8.0.x }
+      - name: Publish
+        run: ./build.ps1 -SkipTests
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ReminderBubble-win-x64
+          path: dist/ReminderBubble-win-x64.zip

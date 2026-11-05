@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>ReminderBubble</AssemblyName>
+    <RootNamespace>ReminderBubble</RootNamespace>
+    <Version>1.0.0</Version>
+    <Product>Reminder Bubble</Product>
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Lets the project also be restored/compiled on non-Windows machines (CI, Linux dev boxes). -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- Do not copy the WebView2 reference-doc .xml files next to the exe. -->
+    <AllowedReferenceRelatedFileExtensions>.pdb</AllowedReferenceRelatedFileExtensions>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The whole shell is code-only WPF (no XAML), so the two desktop frameworks are referenced directly. -->
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WPF" />
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The HTML / CSS / JS user interface, served to WebView2 from a virtual host. -->
+    <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

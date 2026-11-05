@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-accent="violet">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; connect-src 'self'">
+  <title>Reminder Bubble</title>
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<div class="app" id="app">
+  <div class="ambient" aria-hidden="true"><i class="orb o1"></i><i class="orb o2"></i><i class="orb o3"></i></div>
+
+  <!-- header: progress ring, greeting, tools. The empty area drags the window. -->
+  <header class="hdr" id="hdr">
+    <div class="ring" id="ring" title="Today's progress">
+      <svg class="r" viewBox="0 0 48 48" aria-hidden="true">
+        <defs><linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" style="stop-color:var(--a1)"/><stop offset="1" style="stop-color:var(--a2)"/></linearGradient></defs>
+        <circle class="bg" cx="24" cy="24" r="20"/><circle class="fg" id="ringFg" cx="24" cy="24" r="20"/>
+      </svg>
+      <span class="rt" id="ringText">0</span>
+    </div>
+    <div class="hello"><h1 id="greet">Hello</h1><p id="sub">&nbsp;</p></div>
+    <div class="tools">
+      <button class="ibtn" id="btnSearch" title="Search  ( / )" aria-label="Search"></button>
+      <button class="ibtn" id="btnPin" title="Keep this panel open" aria-label="Pin panel"></button>
+      <button class="ibtn" id="btnSettings" title="Settings" aria-label="Settings"></button>
+      <button class="ibtn" id="btnClose" title="Close  ( Esc )" aria-label="Close"></button>
+    </div>
+  </header>
+
+  <nav class="tabs" id="tabs" role="tablist">
+    <i class="pill"></i>
+    <button class="tab on" role="tab" data-tab="today">Today <b>0</b></button>
+    <button class="tab" role="tab" data-tab="upcoming">Upcoming <b>0</b></button>
+    <button class="tab" role="tab" data-tab="all">All <b>0</b></button>
+    <button class="tab" role="tab" data-tab="done">Done <b>0</b></button>
+  </nav>
+
+  <div class="searchbar" id="searchbar">
+    <div class="inner"><label><span id="searchIcon"></span><input id="q" type="text" placeholder="Search reminders" autocomplete="off" spellcheck="false"></label></div>
+  </div>
+
+  <div class="stage">
+    <main class="list" id="list" aria-live="polite"></main>
+    <div class="empty" id="empty">
+      <div class="art"><i class="ring1"></i><i class="ring2"></i><div class="orb" id="emptyIcon"></div></div>
+      <h3 id="emptyTitle">All clear</h3>
+      <p id="emptyText">Nothing is waiting for you.</p>
+    </div>
+  </div>
+
+  <div class="fade"></div>
+  <footer class="composer">
+    <div class="cbox">
+      <div class="preview" id="preview"><div id="previewChips"></div></div>
+      <form class="qrow" id="quick" autocomplete="off">
+        <span class="spark" id="sparkIcon"></span>
+        <input id="qin" type="text" maxlength="200" placeholder="Remind me to…" spellcheck="false" aria-label="New reminder">
+        <button type="button" class="ibtn" id="btnMore" title="More options" aria-label="More options"></button>
+        <button type="submit" class="go" id="btnGo" disabled aria-label="Add reminder"></button>
+      </form>
+    </div>
+  </footer>
+
+  <div class="scrim" id="scrim"></div>
+
+  <!-- create / edit -->
+  <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="shTitle">
+    <div class="grab"></div>
+    <div class="sh-body">
+      <div class="sh-head"><h2 id="shTitle">New reminder</h2><button class="ibtn" id="shClose" aria-label="Close"></button></div>
+      <input class="f-title" id="fTitle" type="text" maxlength="200" placeholder="What do you need to remember?" autocomplete="off" spellcheck="false">
+      <textarea class="f-notes" id="fNotes" rows="1" maxlength="2000" placeholder="Add a note (optional)"></textarea>
+      <div>
+        <div class="f-label">When</div>
+        <div class="when-row">
+          <button class="pick" id="pickDate" type="button"><span id="icoCal"></span><span id="dateText">Today</span><span class="chev" id="chev1"></span></button>
+          <button class="pick" id="pickTime" type="button"><span id="icoClock"></span><span id="timeText">9:00 AM</span><span class="chev" id="chev2"></span></button>
+        </div>
+        <div class="qchips" id="qchips"></div>
+        <div class="drawer" id="drawer"><div class="drawer-in"><div id="dbody"></div></div></div>
+      </div>
+      <div><div class="f-label">Repeat</div><div class="grid3" id="fRepeat"></div></div>
+      <div><div class="f-label">Colour</div><div class="swatches" id="fColor"></div></div>
+      <div><div class="f-label">Priority</div><div class="seg" id="fPrio"><i class="pill"></i><button type="button" data-v="0">Low</button><button type="button" data-v="1">Normal</button><button type="button" data-v="2">High</button></div></div>
+    </div>
+    <div class="sh-foot">
+      <button class="ibtn danger" id="fDelete" title="Delete" aria-label="Delete"></button>
+      <span class="sp"></span>
+      <button class="btn ghost" id="fCancel" type="button">Cancel</button>
+      <button class="btn primary" id="fSave" type="button">Save reminder</button>
+    </div>
+  </section>
+
+  <!-- settings -->
+  <section class="sheet" id="settings" role="dialog" aria-modal="true" aria-label="Settings">
+    <div class="grab"></div>
+    <div class="sh-body" id="setBody"></div>
+  </section>
+</div>
+
+<script src="js/bridge.js"></script>
+<script src="js/mock.js"></script>
+<script src="js/core.js"></script>
+<script src="js/parse.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

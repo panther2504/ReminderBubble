@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The data / scheduling / settings layers have no UI dependency, so their source files are compiled straight into
+    a plain net8.0 test project. That keeps the tests runnable on any OS (including CI on Linux).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>ReminderBubble.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\src\ReminderBubble\Models\*.cs" Link="Linked\Models\%(Filename)%(Extension)" />
+    <Compile Include="..\..\src\ReminderBubble\Data\Database.cs" Link="Linked\Data\Database.cs" />
+    <Compile Include="..\..\src\ReminderBubble\Services\ReminderService.cs" Link="Linked\Services\ReminderService.cs" />
+    <Compile Include="..\..\src\ReminderBubble\Services\Recurrence.cs" Link="Linked\Services\Recurrence.cs" />
+    <Compile Include="..\..\src\ReminderBubble\Services\SettingsService.cs" Link="Linked\Services\SettingsService.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.11" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+</Project>

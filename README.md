@@ -23,10 +23,12 @@ reminder is due, and opens a polished panel when you click it.
   slides out of the bubble with **Done** and **Snooze** (10 min by default, or pick 30 min / 1 h / tomorrow …).
 * **Quick add in plain English** – type `call mom tomorrow 5pm`, `stand-up every weekday 9am`, `in 20 min stretch`,
   `dentist next friday 3pm`, `pay rent every month`. A live preview shows how it was understood; press Enter.
-* **macOS-style open / close** – the panel grows out of the bubble (scale + fade from the bubble's position, with the window
-  clipped to a rounded shape that follows the same curve) and shrinks back into it when closed. Honours *reduce motion*.
+* **macOS genie open / close** – the panel *squeezes* into the bubble and pours back out of it, exactly like a macOS window
+  minimising into the Dock: a snapshot of the panel is cut into 96 thin strips; the strips nearest the bubble collapse first,
+  each sliding toward it and narrowing, so the whole sheet funnels into the bubble (and back). Skipped when Windows'
+  *animation effects* are turned off.
 
-  <img src="docs/genie-open.jpg" alt="The panel opening out of the bubble, frame by frame" width="780">
+  <img src="docs/genie-sim.jpg" alt="The genie squeeze, frame by frame (simulation of the same maths)" width="780">
 
 * **Full editor** – notes, custom calendar and time pickers, repeat (daily, weekdays, weekly, monthly, yearly), colour tags and
   priority.
@@ -43,9 +45,9 @@ Everything is stored locally in `%LOCALAPPDATA%\ReminderBubble\reminders.db`. No
 [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) – already part of Windows 11 and current
 Windows 10, and the installer downloads it for you if it is missing.
 
-1. Run **`releases/ReminderBubble-Setup-1.2.2.exe`** (a small ~3 MB download; it fetches the .NET 8 Desktop Runtime and the
+1. Run **`releases/ReminderBubble-Setup-1.3.0.exe`** (a small ~3 MB download; it fetches the .NET 8 Desktop Runtime and the
    WebView2 Runtime during setup only if they are missing). No internet on the target PC? Use
-   `ReminderBubble-Setup-1.2.2-offline.exe` (~60 MB, everything bundled) from [Actions](../../actions) / [releases](../../releases).
+   `ReminderBubble-Setup-1.3.0-offline.exe` (~60 MB, everything bundled) from [Actions](../../actions) / [releases](../../releases).
 2. Next → Next → Install. No administrator rights are needed: it installs for your user into
    `%LOCALAPPDATA%\Programs\Reminder Bubble` (choose *all users* on the first page if you prefer Program Files).
 3. Optional checkboxes: **start with Windows** and a **desktop shortcut**. Then tick *Launch Reminder Bubble*.

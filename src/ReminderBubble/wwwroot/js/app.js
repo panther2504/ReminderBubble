@@ -850,30 +850,10 @@
   function onShown() {
     document.documentElement.classList.remove('paused');
     queueRefresh();
-    setTimeout(replay, Bridge.isNative ? 170 : 0);          // let the panel grow out first, then stagger the content in
-    if (!openSheetEl) setTimeout(() => el.qin.focus({ preventScroll: true }), Bridge.isNative ? 520 : 220);
+    if (!Bridge.isNative) replay();                          // in the app the genie overlay is the entrance; no stagger behind it
+    if (!openSheetEl) setTimeout(() => el.qin.focus({ preventScroll: true }), Bridge.isNative ? 640 : 220);
   }
 
-  // ---- macOS-style open / close: the whole panel scales out of (and back into) the bubble -------------
-  // Must match WebHostWindow.ApplyRegion in C#: s = size progress, sx = s^1.18, sy = s^0.92, same easing curves.
-  const easeOutQuint = (t) => 1 - Math.pow(1 - t, 5);
-  const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
-  let genie = null;
-
-  function genieRun(open, d) {
-    const app = $('#app');
-    if (genie) { genie.cancel(); genie = null; }
-    if (UI.reduceMotion()) { app.style.transformOrigin = ''; Bridge.send('anim.begin', { instant: true }); return; }
-    app.style.transformOrigin = `${d.ox}px ${d.oy}px`;           // the bubble, in the panel's own coordinates
-    const N = 40, frames = [];
-    for (let i = 0; i <= N; i++) {
-      const t = i / N, p = open ? easeOutQuint(t) : easeInOutCubic(t), s = open ? p : 1 - p;
-      frames.push({ offset: t, transform: `scale(${Math.pow(s, 1.18)}, ${Math.pow(s, 0.92)})`, opacity: Math.min(1, s * 3.2) });
-    }
-    const anim = genie = app.animate(frames, { duration: d.dur, easing: 'linear', fill: 'forwards' });
-    if (open) anim.onfinish = () => { if (genie === anim) { anim.cancel(); genie = null; app.style.transformOrigin = ''; } };
-    Bridge.send('anim.begin', { instant: false });                // the host starts its window clip in step with this
-  }
   function onHidden() {
     document.documentElement.classList.add('paused');
     closePopover(true);
@@ -889,8 +869,6 @@
         break;
       case 'update': setUpdate(data); break;
       case 'shown': onShown(); break;
-      case 'expand': genieRun(true, data); break;
-      case 'collapse': genieRun(false, data); break;
       case 'hidden': onHidden(); break;
       case 'open':
         if (data === 'compose') setTimeout(() => openSheet(null), 120);

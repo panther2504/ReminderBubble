@@ -7,7 +7,6 @@ public static class Ease
 {
     public static double Linear(double t) => t;
     public static double OutCubic(double t) => 1 - Math.Pow(1 - t, 3);
-    public static double OutQuint(double t) => 1 - Math.Pow(1 - t, 5);
     public static double InCubic(double t) => t * t * t;
     public static double InOutCubic(double t) => t < 0.5 ? 4 * t * t * t : 1 - Math.Pow(-2 * t + 2, 3) / 2;
     public static double OutExpo(double t) => t >= 1 ? 1 : 1 - Math.Pow(2, -10 * t);

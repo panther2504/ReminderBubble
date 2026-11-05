@@ -5,6 +5,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shell;
 using System.Windows.Threading;
+using System.Windows.Media.Imaging;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 using ReminderBubble.Interop;
@@ -31,14 +32,14 @@ public sealed class WebHostWindow : Window
     Tween? _tween;
     bool _allowClose;
 
-    // "genie" open/close: the panel grows out of the bubble and shrinks back into it (see GenieShow / GenieHide)
-    const double OpenMs = 460, CloseMs = 340;
-    Action<bool>? _onBegin;
-    DispatcherTimer? _beginGuard;
+    // macOS "genie" open/close (see GenieOverlay): the panel funnels out of / into the bubble
+    const double OpenMs = 560, CloseMs = 480;
+    int _genieToken;                 // bumped by every show/hide so a superseded animation quietly stops
+    GenieOverlay? _overlay;
     bool _genieRunning;
 
-    /// <summary>Where the bubble is (screen px). When set, this window opens from / closes into that point.</summary>
-    public Func<System.Drawing.Point>? AnchorProvider { get; set; }
+    /// <summary>The bubble (screen px: centre x, centre y, radius). When set, this window opens from / closes into it.</summary>
+    public Func<(int x, int y, int r)>? AnchorProvider { get; set; }
 
     public bool IsReady { get; private set; }
     /// <summary>Logically visible (true from the moment a show starts until a hide starts).</summary>
@@ -148,10 +149,11 @@ public sealed class WebHostWindow : Window
     int PxW => (int)Math.Round(Width * Dpi);
     int PxH => (int)Math.Round(Height * Dpi);
 
-    public void ShowAt(int x, int y, int dir, bool activate, System.Drawing.Point? anchor = null)
+    public void ShowAt(int x, int y, int dir, bool activate, (int x, int y, int r)? anchor = null)
     {
         if (!IsReady) return;
-        if (anchor is { } a) { GenieShow(x, y, a, activate); return; }
+        // (Windows' own "animation effects" switch is honoured: off -> the quick fade below)
+        if (anchor is { } a && SystemParameters.ClientAreaAnimation) { GenieShow(x, y, a, activate); return; }
         _tween?.Stop();
         var slide = (int)Math.Round(22 * Dpi);
 
@@ -189,7 +191,13 @@ public sealed class WebHostWindow : Window
     public void HideAnimated()
     {
         if (!IsShown) return;
-        if (AnchorProvider is { } anchor) { GenieHide(anchor()); return; }
+        if (AnchorProvider is { } anchor && SystemParameters.ClientAreaAnimation) { GenieHide(anchor()); return; }
+        LegacyHide();
+    }
+
+    /// <summary>The plain fade + slide (used by the alert card, and as a fallback if the genie cannot run).</summary>
+    void LegacyHide()
+    {
         IsShown = false;
         LastHiddenUtc = DateTime.UtcNow;
         Post(new { ev = "hidden" });
@@ -201,88 +209,87 @@ public sealed class WebHostWindow : Window
             () => { Hide(); Native.SetOpacity(_hwnd, 1); Hidden?.Invoke(this); });
     }
 
-    // ---- genie -----------------------------------------------------------------------------------
-    // Two layers move together so it looks like one window scaling out of the bubble:
-    //   * the PAGE scales/fades its whole UI from the bubble's position (GPU compositor, buttery),
-    //   * the native WINDOW is clipped to a rounded shape following the exact same curve (SetWindowRgn), so no
-    //     full-size rectangle is ever visible. The page tells us when its animation starts (anim.begin) so both begin together.
-    // The maths here must match genieRun() in wwwroot/js/app.js: s = size progress, sx = s^1.18, sy = s^0.92.
+    // ---- genie ----------------------------------------------------------------------------------
+    // Opening: the real window is shown fully transparent, a snapshot of it is taken, and a GenieOverlay pours the
+    // snapshot out of the bubble; when it lands, the real window becomes opaque and the overlay disappears.
+    // Closing: snapshot the live window, swap it for the overlay (first frame), funnel it into the bubble.
 
-    /// <summary>Called (via the bridge) by the page when its own open / close animation has started.</summary>
-    public void OnAnimBegin(bool instant)
+    async Task<BitmapSource?> CaptureAsync(int delayMs)
     {
-        var action = _onBegin; _onBegin = null; _beginGuard?.Stop();
-        action?.Invoke(instant);
+        try
+        {
+            if (delayMs > 0) await Task.Delay(delayMs);              // let a freshly shown page paint its first frame
+            using var ms = new MemoryStream();
+            await _web.CoreWebView2.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, ms);
+            ms.Position = 0;
+            var bmp = new BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = BitmapCacheOption.OnLoad;
+            bmp.StreamSource = ms;
+            bmp.EndInit();
+            bmp.Freeze();
+            return GenieOverlay.RoundCorners(bmp, (int)Math.Round(8 * Dpi));
+        }
+        catch (Exception ex)
+        {
+            Log.Write("Genie capture failed: " + ex.Message);
+            return null;
+        }
     }
 
-    void WhenPageBegins(Action<bool> action)
+    void GenieShow(int x, int y, (int x, int y, int r) anchor, bool activate)
     {
-        _onBegin = action;
-        _beginGuard?.Stop();
-        _beginGuard = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(160) };
-        _beginGuard.Tick += (_, _) => OnAnimBegin(false);          // the page did not answer in time: go anyway
-        _beginGuard.Start();
-    }
-
-    void ApplyRegion(double s, int w, int h, double ax, double ay)
-    {
-        s = Math.Clamp(s, 0, 1);
-        double sx = Math.Pow(s, 1.18), sy = Math.Pow(s, 0.92);
-        double left = ax * (1 - sx), top = ay * (1 - sy);
-        int l = (int)Math.Round(Math.Clamp(left, 0, w)), t = (int)Math.Round(Math.Clamp(top, 0, h));
-        int r = (int)Math.Round(Math.Clamp(left + w * sx, 0, w)), b = (int)Math.Round(Math.Clamp(top + h * sy, 0, h));
-        if (r - l < 2) r = Math.Min(w, l + 2);
-        if (b - t < 2) b = Math.Min(h, t + 2);
-        var radius = Tween.Lerp(Math.Min(r - l, b - t) / 2.0, 10 * Dpi, s * s * (3 - 2 * s));      // circle -> rounded rectangle
-        var rgn = Native.CreateRoundRectRgn(l, t, r + 1, b + 1, (int)(radius * 2), (int)(radius * 2));
-        Native.SetWindowRgn(_hwnd, rgn, true);
-    }
-
-    void RunRegion(bool open, bool instant, int w, int h, double ax, double ay)
-    {
+        var token = ++_genieToken;
         _tween?.Stop();
-        if (instant) { FinishGenie(open); return; }
-        _tween = Tween.Run(open ? OpenMs : CloseMs, open ? Ease.OutQuint : Ease.InOutCubic,
-            e => ApplyRegion(open ? e : 1 - e, w, h, ax, ay),
-            () => FinishGenie(open));
-    }
-
-    void FinishGenie(bool open)
-    {
-        _genieRunning = false;
-        if (!open) { Post(new { ev = "hidden" }); Hide(); }
-        Native.SetWindowRgn(_hwnd, IntPtr.Zero, true);          // back to the native shape (rounded corners + shadow)
-        if (!open) Hidden?.Invoke(this);
-    }
-
-    void GenieShow(int x, int y, System.Drawing.Point anchor, bool activate)
-    {
-        _tween?.Stop();
-        int w = PxW, h = PxH;
-        double ax = anchor.X - x, ay = anchor.Y - y;
+        _overlay?.Abort(); _overlay = null;
         _genieRunning = true;
-        Native.SetOpacity(_hwnd, 1);
-        ApplyRegion(0, w, h, ax, ay);                                // nothing visible yet: the window is clipped to a point
+
+        Native.SetOpacity(_hwnd, 0);                                 // present (so the page renders) but invisible
         if (!IsVisible) { ShowActivated = activate; Show(); }
-        Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, x, y, w, h, Native.SWP_NOACTIVATE);
+        Native.SetWindowPos(_hwnd, Native.HWND_TOPMOST, x, y, PxW, PxH, Native.SWP_NOACTIVATE);
         IsShown = true;
         if (activate) Activate();
         Post(new { ev = "shown" });
-        Post(new { ev = "expand", data = new { ox = ax / Dpi, oy = ay / Dpi, dur = OpenMs } });
-        WhenPageBegins(instant => RunRegion(true, instant, w, h, ax, ay));
+        _ = RunGenie(true, token, new System.Drawing.Rectangle(x, y, PxW, PxH), anchor, 60);
     }
 
-    void GenieHide(System.Drawing.Point anchor)
+    void GenieHide((int x, int y, int r) anchor)
     {
         IsShown = false;
         LastHiddenUtc = DateTime.UtcNow;
+        var token = ++_genieToken;
         _tween?.Stop();
-        var r = Native.GetRect(_hwnd);
-        int w = r.Right - r.Left, h = r.Bottom - r.Top;
-        double ax = anchor.X - r.Left, ay = anchor.Y - r.Top;
+        _overlay?.Abort(); _overlay = null;
         _genieRunning = true;
-        Post(new { ev = "collapse", data = new { ox = ax / Dpi, oy = ay / Dpi, dur = CloseMs } });
-        WhenPageBegins(instant => RunRegion(false, instant, w, h, ax, ay));
+        var r = Native.GetRect(_hwnd);
+        _ = RunGenie(false, token, new System.Drawing.Rectangle(r.Left, r.Top, r.Right - r.Left, r.Bottom - r.Top), anchor, 0);
+    }
+
+    async Task RunGenie(bool open, int token, System.Drawing.Rectangle rect, (int x, int y, int r) anchor, int delayMs)
+    {
+        var snapshot = await CaptureAsync(delayMs);
+        if (token != _genieToken) return;                            // a newer open/close took over meanwhile
+
+        if (snapshot is null)                                        // could not capture: fall back to a simple fade
+        {
+            _genieRunning = false;
+            if (open) _tween = Tween.Run(220, Ease.OutCubic, t => Native.SetOpacity(_hwnd, t), () => Native.SetOpacity(_hwnd, 1));
+            else LegacyHide();
+            return;
+        }
+
+        var overlay = _overlay = new GenieOverlay();
+        overlay.Start(snapshot, rect, new System.Drawing.Point(anchor.x, anchor.y), anchor.r, open, open ? OpenMs : CloseMs, Dpi,
+            onFirstFrame: () => { if (token == _genieToken && !open) Hide(); },     // the overlay now stands in for the window
+            onDone: () =>
+            {
+                if (token != _genieToken) return;
+                _genieRunning = false;
+                if (open) Native.SetOpacity(_hwnd, 1);                              // real window on, THEN overlay off: no flash
+                else { Post(new { ev = "hidden" }); Hidden?.Invoke(this); }
+                _overlay = null;
+                overlay.Close();
+            });
     }
 
     async void OnDeactivated(object? sender, EventArgs e)

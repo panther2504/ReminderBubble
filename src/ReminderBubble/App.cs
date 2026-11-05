@@ -81,7 +81,7 @@ public sealed class App : Application
             Panel = new WebHostWindow("index.html", 408, 660, env, bridge, hideOnDeactivate: true);
             Alert = new WebHostWindow("alert.html", 388, 200, env, bridge, hideOnDeactivate: false);
             Panel.Hidden += _ => Bubble.SetPanelOpen(false);
-            Panel.AnchorProvider = BubbleCenter;          // the panel opens from / closes into the bubble
+            Panel.AnchorProvider = BubbleAnchor;          // the panel opens from / closes into the bubble
             await Panel.WarmAsync();
             await Alert.WarmAsync();
 
@@ -175,7 +175,7 @@ public sealed class App : Application
         Panel.Height = Math.Min(660, Math.Max(420, work.Height / Panel.Dpi - 32));
         var (x, y, dir) = PlaceBeside(Panel);
         if (Panel.IsShown) { Panel.Relocate(x, y); Panel.Activate(); }
-        else Panel.ShowAt(x, y, dir, activate: true, anchor: BubbleCenter());
+        else Panel.ShowAt(x, y, dir, activate: true, anchor: BubbleAnchor());
         if (mode is not null) Panel.Post(new { ev = "open", data = mode });
     }
 
@@ -192,11 +192,11 @@ public sealed class App : Application
         if (Alert.IsShown) { var (x, y, _) = PlaceBeside(Alert); Alert.Relocate(x, y); }
     }
 
-    /// <summary>The middle of the bubble's resting circle, in screen pixels - the point the panel grows out of.</summary>
-    System.Drawing.Point BubbleCenter()
+    /// <summary>The bubble's resting circle in screen pixels (centre x, centre y, radius) - what the panel pours out of / into.</summary>
+    (int x, int y, int r) BubbleAnchor()
     {
         var c = Bubble.RestBounds;
-        return new System.Drawing.Point(c.Left + c.Width / 2, c.Top + c.Height / 2);
+        return (c.Left + c.Width / 2, c.Top + c.Height / 2, c.Width / 2);
     }
 
     System.Drawing.Rectangle WorkAreaNearBubble() => Forms.Screen.FromRectangle(Bubble.RestBounds).WorkingArea;

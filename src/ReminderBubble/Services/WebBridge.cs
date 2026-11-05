@@ -77,7 +77,6 @@ public sealed class WebBridge
 
             // ---- windows ----
             case "window.drag": host.BeginDrag(); return null;
-            case "anim.begin": host.OnAnimBegin(a.ValueKind == JsonValueKind.Object && a.TryGetProperty("instant", out var inst) && inst.ValueKind == JsonValueKind.True); return null;
             case "panel.close": _app.Panel.HideAnimated(); return null;
             case "panel.pin": _app.Panel.Pinned = a.GetProperty("value").GetBoolean(); return null;
             case "alert.close": _app.Alert.HideAnimated(); return null;
